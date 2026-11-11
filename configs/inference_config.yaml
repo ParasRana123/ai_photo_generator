@@ -1,0 +1,30 @@
+# SDXL LoRA Inference Configuration
+inference:
+  base_model: "stabilityai/stable-diffusion-xl-base-1.0"
+  vae_model: "madebyollin/sdxl-vae-fp16-fix"
+  lora_weights_path: "checkpoints/person_sdxl_lora.safetensors"
+  lora_scale: 0.85
+  fuse_lora: false
+
+  prompt: "A professional studio portrait of sks person in a tailored navy suit, sharp focus, 8k, cinematic lighting"
+  negative_prompt: "blurry, bad quality, low resolution, distorted face, bad eyes, extra limbs, ugly, poorly drawn, oversaturated"
+  style_preset: "photorealistic"
+  trigger_word: "sks person"
+  auto_inject_trigger: true
+
+  width: 1024
+  height: 1024
+  num_inference_steps: 30
+  guidance_scale: 7.0
+  seed: 42
+  num_images_per_prompt: 1
+  sampler: "dpm++_2m_karras"
+
+  mixed_precision: "fp16"
+  enable_cpu_offload: true
+  enable_vae_tiling: true
+  enable_vae_slicing: true
+
+  output_dir: "outputs/generated"
+  save_format: "PNG"
+  embed_metadata: true
