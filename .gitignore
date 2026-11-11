@@ -61,3 +61,10 @@ Thumbs.db
 
 # Antigravity & Agent artifacts
 .gemini/
+
+# Node.js & Frontend builds
+node_modules/
+frontend/dist/
+backend/data/
+.env
+*.log
