@@ -1,0 +1,17 @@
+# AI Photo Generator - Phase 1 Requirements: SDXL LoRA Training Pipeline
+torch>=2.0.0
+torchvision>=0.15.0
+diffusers>=0.28.0
+transformers>=4.40.0
+accelerate>=0.28.0
+peft>=0.10.0
+safetensors>=0.4.3
+huggingface-hub>=0.20.0
+pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+tqdm>=4.65.0
+pydantic>=2.0.0
+rich>=13.0.0
+pytest>=7.0.0
