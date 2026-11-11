@@ -1,0 +1,69 @@
+# SDXL LoRA Training Pipeline Configuration
+preprocess:
+  input_dir: "data/raw"
+  output_dir: "data/processed"
+  resolution: 1024
+  min_photos: 10
+  max_photos: 30
+  trigger_word: "sks person"
+  face_padding: 0.35
+  detect_face: true
+  aspect_ratio_buckets:
+    - [1024, 1024]
+    - [896, 1152]
+    - [1152, 896]
+    - [768, 1344]
+    - [1344, 768]
+  supported_formats:
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".webp"
+
+model:
+  pretrained_model_name_or_path: "stabilityai/stable-diffusion-xl-base-1.0"
+  vae_name_or_path: "madebyollin/sdxl-vae-fp16-fix"
+  revision: null
+  variant: "fp16"
+  enable_xformers: false
+  gradient_checkpointing: true
+
+training:
+  output_dir: "checkpoints"
+  output_name: "person_sdxl_lora"
+  rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  train_unet: true
+  train_text_encoder: false
+  learning_rate: 0.0001
+  text_encoder_lr: 0.00005
+  lr_scheduler: "cosine"
+  lr_warmup_steps: 50
+  max_train_steps: 500
+  train_batch_size: 1
+  gradient_accumulation_steps: 4
+  mixed_precision: "fp16"
+  seed: 42
+  cache_latents: true
+  optimizer: "adamw"
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_weight_decay: 0.01
+  adam_epsilon: 0.00000001
+  max_grad_norm: 1.0
+  checkpointing_steps: 250
+  save_safetensors: true
+
+validation:
+  validation_prompts:
+    - "A professional studio portrait photo of sks person in a tailored dark suit, sharp focus, 8k, cinematic lighting"
+    - "A casual candid photo of sks person sitting at a coffee shop on a sunny morning, natural lighting"
+    - "A close-up headshot of sks person with soft rim lighting, highly detailed eyes, 85mm lens photograph"
+    - "An epic cinematic portrait of sks person in a cyberpunk neon lit city at night, rain reflections"
+  negative_prompt: "blurry, bad quality, low resolution, distorted face, extra limbs, ugly, poorly drawn, oversaturated"
+  num_validation_images: 4
+  num_inference_steps: 30
+  guidance_scale: 7.5
+  seed: 42
+  output_dir: "outputs/validation"

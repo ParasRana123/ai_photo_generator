@@ -1,0 +1,20 @@
+# Standalone Preprocessing Configuration
+input_dir: "data/raw"
+output_dir: "data/processed"
+resolution: 1024
+min_photos: 10
+max_photos: 30
+trigger_word: "sks person"
+face_padding: 0.35
+detect_face: true
+aspect_ratio_buckets:
+  - [1024, 1024]
+  - [896, 1152]
+  - [1152, 896]
+  - [768, 1344]
+  - [1344, 768]
+supported_formats:
+  - ".jpg"
+  - ".jpeg"
+  - ".png"
+  - ".webp"
