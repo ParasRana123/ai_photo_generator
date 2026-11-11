@@ -14,6 +14,7 @@ from PIL import Image
 
 from src.utils.inference_config import InferenceConfig
 from src.utils.device import get_optimal_device, clear_memory
+from src.training.face_encoder import FaceIdentityEncoder
 from .pipeline_loader import SDXLPipelineLoader
 from .prompt_enhancer import PromptEnhancer
 from .metadata_writer import PNGMetadataWriter
@@ -49,9 +50,14 @@ class SDXLInferenceEngine:
             else get_optimal_device()
         )
 
+        auto_inject = (
+            self.config.auto_inject_trigger
+            if self.config.engine_mode != "instant_faceid"
+            else False
+        )
         self.enhancer = PromptEnhancer(
             trigger_word=self.config.trigger_word,
-            auto_inject_trigger=self.config.auto_inject_trigger
+            auto_inject_trigger=auto_inject
         )
 
         self.loader = SDXLPipelineLoader(self.config)
@@ -96,7 +102,7 @@ class SDXLInferenceEngine:
         # 2. Configure deterministic generator
         generator = torch.Generator(device="cpu").manual_seed(current_seed)
 
-        # 3. Prepare cross-attention LoRA scale only if LoRA is active
+        # 3. Prepare LoRA cross-attention scale and/or FaceID IP-Adapter embeddings
         call_kwargs: Dict[str, Any] = {
             "prompt": pos_prompt,
             "negative_prompt": neg_prompt,
@@ -107,12 +113,30 @@ class SDXLInferenceEngine:
             "num_images_per_prompt": num_images,
             "generator": generator,
         }
-        if self.mock or getattr(self.pipeline, "_has_active_lora", False):
+
+        if getattr(self.pipeline, "_has_active_ip_adapter", False):
+            face_path = Path(self.config.face_id_path)
+            if face_path.exists():
+                face_embed = FaceIdentityEncoder.load_face_embedding(face_path)
+            elif self.mock:
+                face_embed = torch.randn(1, 1, 512, dtype=torch.float32)
+            else:
+                raise FileNotFoundError(
+                    f"FaceID embedding not found at '{face_path}'. Run Instant FaceID enrollment first."
+                )
+
+            do_cfg = cfg_scale > 1.0
+            face_embed = face_embed.to(dtype=self.loader.dtype)
+            call_kwargs["ip_adapter_image_embeds"] = FaceIdentityEncoder.prepare_ip_adapter_embeds(
+                face_embed, do_classifier_free_guidance=do_cfg
+            )
+        elif self.mock or getattr(self.pipeline, "_has_active_lora", False):
             call_kwargs["cross_attention_kwargs"] = {"scale": self.config.lora_scale}
+
         if callback is not None:
             call_kwargs["callback"] = callback
 
-        logger.info(f"Generating {num_images} image(s) with seed {current_seed}...")
+        logger.info(f"Generating {num_images} image(s) [{self.config.engine_mode}] with seed {current_seed}...")
         logger.info(f"  Prompt: {pos_prompt[:100]}...")
 
         # 4. Execute diffusion inference
@@ -123,6 +147,7 @@ class SDXLInferenceEngine:
 
         # 5. Build metadata
         meta = {
+            "engine_mode": self.config.engine_mode,
             "prompt": pos_prompt,
             "raw_prompt": raw_prompt,
             "negative_prompt": neg_prompt,
@@ -134,9 +159,12 @@ class SDXLInferenceEngine:
             "guidance_scale": cfg_scale,
             "seed": current_seed,
             "sampler": self.config.sampler,
+            "use_lcm": self.config.use_lcm,
             "base_model": self.config.base_model,
             "lora_name": Path(self.config.lora_weights_path).name,
             "lora_scale": self.config.lora_scale,
+            "face_id_name": Path(self.config.face_id_path).name,
+            "ip_adapter_scale": self.config.ip_adapter_scale,
             "generation_time_seconds": round(duration, 3)
         }
 
