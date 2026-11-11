@@ -42,11 +42,18 @@ router.get("/health", async (req, res) => {
  */
 router.post("/train", authenticateToken, async (req, res) => {
   try {
-    const { trigger_word = "sks person", steps = 10, rank = 16, dry_run } = req.body || {};
+    const {
+      trigger_word = "sks person",
+      steps = 10,
+      rank = 16,
+      engine_mode = "instant_faceid",
+      dry_run,
+    } = req.body || {};
     const response = await axios.post(`${PYTHON_API_URL}/train`, {
       trigger_word,
       steps: Number(steps),
       rank: Number(rank),
+      engine_mode,
       dry_run,
     });
     res.json(response.data);
@@ -91,10 +98,16 @@ router.post("/generate", authenticateToken, async (req, res) => {
     const response = await axios.post(`${PYTHON_API_URL}/generate`, {
       prompt: payload.prompt.trim(),
       negative_prompt: payload.negative_prompt,
+      engine_mode: payload.engine_mode || "sdxl_lora",
       base_model: payload.base_model || "stabilityai/stable-diffusion-xl-base-1.0",
       style_preset: payload.style_preset || "photorealistic",
       trigger_word: payload.trigger_word || "sks person",
       lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
+      ip_adapter_scale:
+        payload.ip_adapter_scale !== undefined ? Number(payload.ip_adapter_scale) : 0.7,
+      use_lcm: Boolean(payload.use_lcm),
+      sampler: payload.sampler || (payload.use_lcm ? "lcm" : "dpm++_2m_karras"),
+      face_id_path: payload.face_id_path || "checkpoints/person_face_id.safetensors",
       steps: payload.steps !== undefined ? Number(payload.steps) : 30,
       guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 7.0,
       width: payload.width !== undefined ? Number(payload.width) : 1024,
