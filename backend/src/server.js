@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const { PORT, RAW_PHOTOS_DIR, GENERATED_DIR } = require("./config/env");
+const authRoutes = require("./routes/auth");
 
 const app = express();
 
@@ -20,6 +21,9 @@ app.use(express.urlencoded({ extended: true }));
 // Static serving for raw uploaded photos and generated outputs
 app.use("/uploads", express.static(RAW_PHOTOS_DIR));
 app.use("/outputs/generated", express.static(GENERATED_DIR));
+
+// Routes
+app.use("/api/auth", authRoutes);
 
 // Health route
 app.get("/api/health", (req, res) => {
