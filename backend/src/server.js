@@ -3,6 +3,8 @@ const cors = require("cors");
 const fs = require("fs");
 const { PORT, RAW_PHOTOS_DIR, GENERATED_DIR } = require("./config/env");
 const authRoutes = require("./routes/auth");
+const photoRoutes = require("./routes/photos");
+const aiRoutes = require("./routes/ai");
 
 const app = express();
 
@@ -24,6 +26,8 @@ app.use("/outputs/generated", express.static(GENERATED_DIR));
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/photos", photoRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Health route
 app.get("/api/health", (req, res) => {
