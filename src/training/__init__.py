@@ -10,6 +10,7 @@ from .model_loader import ModelLoader, MockSDXLUNet
 from .lora_network import LoRANetworkManager
 from .trainer import SDXLLoRATrainer
 from .saver import LoRASaver
+from .face_encoder import FaceIdentityEncoder
 
 __all__ = [
     "SDXLDataset",
@@ -19,5 +20,6 @@ __all__ = [
     "MockSDXLUNet",
     "LoRANetworkManager",
     "SDXLLoRATrainer",
-    "LoRASaver"
+    "LoRASaver",
+    "FaceIdentityEncoder"
 ]
