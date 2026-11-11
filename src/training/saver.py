@@ -56,7 +56,7 @@ class LoRASaver:
             if not clean_key.startswith("lora_unet_") and not clean_key.startswith("lora_te_"):
                 clean_key = f"lora_unet_{clean_key}"
 
-            converted[clean_key] = tensor.contiguous()
+            converted[clean_key] = tensor.contiguous() if hasattr(tensor, "contiguous") else tensor
 
         return converted
 
