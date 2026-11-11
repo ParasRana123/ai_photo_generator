@@ -20,18 +20,22 @@ from src.training.model_loader import ModelLoader, MockSDXLUNet
 from src.training.lora_network import LoRANetworkManager
 from src.training.trainer import SDXLLoRATrainer
 from src.training.saver import LoRASaver
+from src.training.face_encoder import FaceIdentityEncoder
 from src.utils.logger import TrainingLogger
 
 
 @dataclass
 class TrainingJobState:
     status: str = "idle"  # idle, preprocessing, caching, training, saving, completed, failed
+    engine_mode: str = "instant_faceid"
     progress_percent: float = 0.0
     current_step: int = 0
     total_steps: int = 0
     current_loss: float = 0.0
+    faces_detected: int = 0
     message: str = "Ready to train"
     lora_path: Optional[str] = None
+    face_id_path: Optional[str] = None
     trigger_word: str = "sks person"
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
@@ -85,7 +89,8 @@ class TrainingJobManager:
         trigger_word: str = "sks person",
         steps: int = 10,
         rank: int = 16,
-        dry_run: bool = True
+        dry_run: bool = True,
+        engine_mode: str = "instant_faceid"
     ) -> Dict[str, Any]:
         if self.is_running():
             raise RuntimeError("A training job is already in progress.")
@@ -93,17 +98,22 @@ class TrainingJobManager:
         with self.lock:
             self.state = TrainingJobState(
                 status="preprocessing",
+                engine_mode=engine_mode,
                 progress_percent=5.0,
                 current_step=0,
                 total_steps=steps,
                 trigger_word=trigger_word,
-                message="Starting photo preprocessing...",
+                message=(
+                    "Initializing Instant FaceID Encoder..."
+                    if engine_mode == "instant_faceid"
+                    else "Starting photo preprocessing..."
+                ),
                 started_at=time.time()
             )
 
         self._thread = threading.Thread(
             target=self._run_worker,
-            args=(input_dir, output_dir, trigger_word, steps, rank, dry_run),
+            args=(input_dir, output_dir, trigger_word, steps, rank, dry_run, engine_mode),
             daemon=True
         )
         self._thread.start()
@@ -116,7 +126,8 @@ class TrainingJobManager:
         trigger_word: str,
         steps: int,
         rank: int,
-        dry_run: bool
+        dry_run: bool,
+        engine_mode: str = "instant_faceid"
     ) -> None:
         try:
             device = get_optimal_device()
@@ -135,6 +146,43 @@ class TrainingJobManager:
             ]
             if len(raw_images) == 0:
                 generate_sample_portraits(raw_path, count=12)
+
+            # Fast Zero-Shot Instant FaceID Enrollment Path (~seconds!)
+            if engine_mode == "instant_faceid":
+                with self.lock:
+                    self.state.status = "training"
+                    self.state.progress_percent = 15.0
+                    self.state.message = "Extracting 512-dim ArcFace embeddings from photos..."
+
+                def on_face_progress(done: int, total: int, detected: int):
+                    with self.lock:
+                        self.state.current_step = done
+                        self.state.total_steps = total
+                        self.state.faces_detected = detected
+                        pct = 15.0 + (done / max(1, total)) * 80.0
+                        self.state.progress_percent = round(pct, 1)
+                        self.state.message = f"Encoded {detected}/{done} faces (out of {total} photos)..."
+
+                encoder = FaceIdentityEncoder()
+                summary = encoder.enroll_directory(
+                    input_dir=raw_path,
+                    output_path="checkpoints/person_face_id.safetensors",
+                    trigger_word=trigger_word,
+                    progress_callback=on_face_progress,
+                    mock=dry_run
+                )
+
+                with self.lock:
+                    self.state.status = "completed"
+                    self.state.progress_percent = 100.0
+                    self.state.faces_detected = summary["faces_detected"]
+                    self.state.face_id_path = summary["safetensors_path"]
+                    self.state.message = (
+                        f"Instant FaceID ready! Enrolled {summary['faces_detected']} faces "
+                        f"in {summary['duration_seconds']}s."
+                    )
+                    self.state.completed_at = time.time()
+                return
 
             # Stage 1: Preprocessing
             builder = DatasetBuilder(

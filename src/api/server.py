@@ -43,6 +43,7 @@ class TrainRequest(BaseModel):
     trigger_word: str = "sks person"
     steps: int = 10
     rank: int = 16
+    engine_mode: str = "instant_faceid"
     dry_run: Optional[bool] = None
 
 
@@ -51,9 +52,13 @@ class GenerateRequest(BaseModel):
     negative_prompt: Optional[str] = None
     style_preset: Optional[str] = "photorealistic"
     trigger_word: str = "sks person"
+    engine_mode: str = "sdxl_lora"
     base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
     lora_scale: float = 0.85
+    face_id_path: str = "checkpoints/person_face_id.safetensors"
+    ip_adapter_scale: float = 0.7
+    use_lcm: bool = False
     steps: int = 30
     guidance_scale: float = 7.0
     width: int = 1024
@@ -75,12 +80,21 @@ def health_check() -> Dict[str, Any]:
             if d.is_dir() and d.name.startswith("models--"):
                 cached_models.append(d.name.replace("models--", "").replace("--", "/"))
 
+    try:
+        import insightface  # noqa: F401
+        insightface_ok = True
+    except ImportError:
+        insightface_ok = False
+
     return {
         "status": "ok",
         "service": "python-ai-engine",
         "device": get_device_info(),
         "mock_mode_default": MOCK_MODE_DEFAULT,
-        "cached_models": cached_models
+        "cached_models": cached_models,
+        "insightface_available": insightface_ok,
+        "face_id_ready": Path("checkpoints/person_face_id.safetensors").exists(),
+        "sdxl_lora_ready": Path("checkpoints/person_sdxl_lora.safetensors").exists()
     }
 
 
@@ -102,7 +116,7 @@ def run_preprocessing(input_dir: str = "data/raw", output_dir: str = "data/proce
 
 @app.post("/train")
 def start_training(req: TrainRequest) -> Dict[str, Any]:
-    """Triggers asynchronous SDXL LoRA training."""
+    """Triggers asynchronous training (Instant FaceID enrollment or SDXL LoRA fine-tuning)."""
     if job_manager.is_running():
         raise HTTPException(status_code=409, detail="Training job is already running.")
 
@@ -113,7 +127,8 @@ def start_training(req: TrainRequest) -> Dict[str, Any]:
         trigger_word=req.trigger_word,
         steps=req.steps,
         rank=req.rank,
-        dry_run=use_dry_run
+        dry_run=use_dry_run,
+        engine_mode=req.engine_mode
     )
     return status
 
@@ -126,11 +141,12 @@ def get_training_status() -> Dict[str, Any]:
 
 @app.post("/generate")
 def generate_images(req: GenerateRequest) -> Dict[str, Any]:
-    """Generates images from a prompt using trained LoRA weights."""
+    """Generates images from a prompt using trained LoRA or Instant FaceID + LCM."""
     use_dry_run = req.dry_run if req.dry_run is not None else MOCK_MODE_DEFAULT
 
     try:
         cfg = InferenceConfig(
+            engine_mode=req.engine_mode,
             base_model=req.base_model,
             prompt=req.prompt,
             negative_prompt=req.negative_prompt or InferenceConfig().negative_prompt,
@@ -138,6 +154,9 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
             trigger_word=req.trigger_word,
             lora_weights_path=req.lora_weights_path,
             lora_scale=req.lora_scale,
+            face_id_path=req.face_id_path,
+            ip_adapter_scale=req.ip_adapter_scale,
+            use_lcm=req.use_lcm,
             num_inference_steps=req.steps,
             guidance_scale=req.guidance_scale,
             width=req.width,
