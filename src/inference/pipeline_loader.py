@@ -12,13 +12,15 @@ from PIL import Image, ImageDraw
 
 from diffusers import (
     DiffusionPipeline,
+    StableDiffusionPipeline,
     StableDiffusionXLPipeline,
     AutoencoderKL,
     EulerDiscreteScheduler,
     EulerAncestralDiscreteScheduler,
     DPMSolverMultistepScheduler,
     DDIMScheduler,
-    HeunDiscreteScheduler
+    HeunDiscreteScheduler,
+    LCMScheduler
 )
 from src.utils.inference_config import InferenceConfig
 from src.utils.device import get_optimal_device, get_torch_dtype
@@ -36,8 +38,15 @@ class MockSDXLInferencePipeline:
         self.device = device
         self.active_lora_path: Optional[str] = None
         self.lora_scale: float = 1.0
+        self.ip_adapter_scale: float = 0.7
+        self.engine_mode: str = "sdxl_lora"
         self.fused: bool = False
         self.scheduler_name: str = "dpm++_2m_karras"
+        self._has_active_lora: bool = True
+        self._has_active_ip_adapter: bool = False
+
+    def set_ip_adapter_scale(self, scale: float) -> None:
+        self.ip_adapter_scale = scale
 
     def load_lora_weights(self, pretrained_model_name_or_path_or_dict: Union[str, Path], **kwargs) -> None:
         self.active_lora_path = str(pretrained_model_name_or_path_or_dict)
@@ -124,7 +133,9 @@ class MockSDXLInferencePipeline:
 
 
 class SDXLPipelineLoader:
-    """Manages loading, scheduler swapping, LoRA injection, and memory optimization."""
+    """Manages loading, scheduler swapping, LoRA / IP-Adapter injection, and memory optimization."""
+
+    _PIPELINE_CACHE: Dict[tuple, Any] = {}
 
     def __init__(self, config: Optional[InferenceConfig] = None):
         self.config = config or InferenceConfig()
@@ -160,6 +171,8 @@ class SDXLPipelineLoader:
             pipeline.scheduler = DDIMScheduler.from_config(base_config)
         elif s == "heun":
             pipeline.scheduler = HeunDiscreteScheduler.from_config(base_config)
+        elif s == "lcm":
+            pipeline.scheduler = LCMScheduler.from_config(base_config)
         else:
             logger.warning(f"Unknown scheduler '{sampler_name}', retaining default scheduler.")
 
@@ -168,19 +181,36 @@ class SDXLPipelineLoader:
         mock: bool = False
     ) -> Any:
         """
-        Loads the SDXL pipeline, replaces VAE if configured, attaches scheduler,
-        injects trained LoRA weights with scaling, and applies memory optimizations.
+        Loads either SDXL LoRA or Fast Instant FaceID + LCM pipeline, attaches scheduler,
+        injects adapters/weights, and applies memory optimizations.
         """
         if mock:
             pipe = MockSDXLInferencePipeline(device=self.device)
             pipe.scheduler_name = self.config.sampler
+            pipe.engine_mode = self.config.engine_mode
+            pipe.ip_adapter_scale = self.config.ip_adapter_scale
+            pipe._has_active_ip_adapter = (self.config.engine_mode == "instant_faceid")
             if Path(self.config.lora_weights_path).exists():
                 pipe.load_lora_weights(self.config.lora_weights_path)
                 pipe.lora_scale = self.config.lora_scale
             return pipe
 
+        cache_key = (
+            self.config.engine_mode,
+            self.config.base_model,
+            self.config.use_lcm,
+            self.config.sampler,
+            str(self.dtype),
+            self.config.lora_weights_path if self.config.engine_mode == "sdxl_lora" else None,
+        )
+        if cache_key in self._PIPELINE_CACHE:
+            cached_pipe = self._PIPELINE_CACHE[cache_key]
+            if getattr(cached_pipe, "_has_active_ip_adapter", False) and hasattr(cached_pipe, "set_ip_adapter_scale"):
+                cached_pipe.set_ip_adapter_scale(self.config.ip_adapter_scale)
+            return cached_pipe
+
         try:
-            logger.info(f"Loading diffusion pipeline from {self.config.base_model}...")
+            logger.info(f"Loading diffusion pipeline ({self.config.engine_mode}) from {self.config.base_model}...")
             is_sdxl = "xl" in self.config.base_model.lower()
             use_fp16_variant = (self.dtype == torch.float16)
 
@@ -211,13 +241,42 @@ class SDXLPipelineLoader:
             if hasattr(pipe, "safety_checker") and pipe.safety_checker is not None:
                 pipe.safety_checker = None
 
-            # Configure Sampler
-            self._configure_scheduler(pipe, self.config.sampler)
-
-            # Attach LoRA weights if present and compatible with SDXL
             pipe._has_active_lora = False
+            pipe._has_active_ip_adapter = False
+
+            # Fast LCM-LoRA acceleration (fuses cleanly before IP-Adapter FaceID)
+            if self.config.use_lcm or self.config.sampler.lower() == "lcm":
+                try:
+                    logger.info(f"Loading & fusing LCM-LoRA ({self.config.lcm_lora_repo})...")
+                    pipe.load_lora_weights(self.config.lcm_lora_repo)
+                    if hasattr(pipe, "fuse_lora"):
+                        pipe.fuse_lora()
+                    if hasattr(pipe, "unload_lora_weights"):
+                        pipe.unload_lora_weights()
+                    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+                except Exception as lcm_err:
+                    logger.warning(f"Could not apply LCM-LoRA ({lcm_err}); using standard scheduler.")
+                    self._configure_scheduler(pipe, self.config.sampler)
+            else:
+                self._configure_scheduler(pipe, self.config.sampler)
+
+            # Attach IP-Adapter-FaceID if running in Instant FaceID mode
+            if self.config.engine_mode == "instant_faceid":
+                logger.info(
+                    f"Loading IP-Adapter-FaceID ({self.config.ip_adapter_repo}/{self.config.ip_adapter_weight_name})..."
+                )
+                pipe.load_ip_adapter(
+                    self.config.ip_adapter_repo,
+                    subfolder=None,
+                    weight_name=self.config.ip_adapter_weight_name,
+                    image_encoder_folder=None
+                )
+                pipe.set_ip_adapter_scale(self.config.ip_adapter_scale)
+                pipe._has_active_ip_adapter = True
+
+            # Attach SDXL trained LoRA weights if running in SDXL LoRA mode
             lora_path = Path(self.config.lora_weights_path)
-            if is_sdxl and lora_path.exists():
+            if self.config.engine_mode == "sdxl_lora" and is_sdxl and lora_path.exists():
                 from safetensors.torch import load_file
                 lora_tensors = load_file(str(lora_path))
                 is_mock_lora = any("cross_attn" in k for k in lora_tensors.keys()) and not any(
@@ -251,11 +310,14 @@ class SDXLPipelineLoader:
                     pipe.enable_vae_slicing()
             else:
                 pipe.to(self.device)
+                if self.config.enable_vae_slicing and hasattr(pipe, "enable_vae_slicing"):
+                    pipe.enable_vae_slicing()
 
+            self._PIPELINE_CACHE[cache_key] = pipe
             return pipe
 
         except Exception as err:
             raise RuntimeError(
-                f"Failed to load real SDXL pipeline ({self.config.base_model}) on {self.device.type.upper()}: {err}"
+                f"Failed to load diffusion pipeline ({self.config.base_model}) on {self.device.type.upper()}: {err}"
             ) from err
 
