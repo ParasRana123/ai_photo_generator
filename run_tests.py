@@ -10,7 +10,7 @@ import pytest
 
 def main():
     print("=" * 60)
-    print("  RUNNING PHASE 1 TEST SUITE")
+    print("  RUNNING AI PHOTO GENERATOR TEST SUITE (PHASES 1 & 2)")
     print("=" * 60)
 
     exit_code = pytest.main([
@@ -21,7 +21,7 @@ def main():
 
     print("\n" + "=" * 60)
     if exit_code == 0:
-        print("  ALL PHASE 1 TESTS PASSED SUCCESSFULLY! [OK]")
+        print("  ALL TESTS PASSED SUCCESSFULLY! [OK]")
     else:
         print(f"  TESTS FINISHED WITH EXIT CODE: {exit_code}")
     print("=" * 60)
