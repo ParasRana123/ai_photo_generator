@@ -1,8 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { Wand2, Sparkles, Sliders, Loader2, Download, Images, AlertTriangle, Cpu } from "lucide-react";
+import {
+  Wand2,
+  Sparkles,
+  Sliders,
+  Loader2,
+  Download,
+  Images,
+  AlertTriangle,
+  Cpu,
+  Zap,
+  CheckCircle2,
+} from "lucide-react";
 import { aiApi } from "../api/client";
 
-const PROMPT_IDEAS = [
+const PROMPT_IDEAS_FACEID = [
+  "portrait of a man standing in rainy neon Tokyo at night, wearing a dark leather jacket",
+  "portrait of a man as a sharp executive in a glass office overlooking city skyline",
+  "candid photo of a man sipping espresso at a sunny Parisian sidewalk cafe",
+  "cinematic photo of a man wearing a NASA astronaut suit on the surface of Mars",
+];
+
+const PROMPT_IDEAS_SDXL = [
   "sks person standing in rainy neon Tokyo at night, leather jacket",
   "sks person as a sharp executive in a glass office overlooking skyline",
   "sks person sipping espresso at a sunny Parisian sidewalk cafe",
@@ -12,19 +30,24 @@ const PROMPT_IDEAS = [
 export default function PromptStudio({ onGenerated }) {
   const [styles, setStyles] = useState([]);
   const [health, setHealth] = useState(null);
-  const [baseModel, setBaseModel] = useState("stabilityai/stable-diffusion-xl-base-1.0");
-  const [prompt, setPrompt] = useState("sks person in a tailored navy suit, studio lighting");
+  const [engineMode, setEngineMode] = useState("instant_faceid"); // 'instant_faceid' | 'sdxl_lora'
+  const [baseModel, setBaseModel] = useState("dreamlike-art/dreamlike-diffusion-1.0");
+  const [prompt, setPrompt] = useState(
+    "portrait of a man in a tailored navy suit, studio lighting"
+  );
   const [negativePrompt, setNegativePrompt] = useState(
-    "blurry, low quality, distorted face, extra limbs, watermark"
+    "monochrome, lowres, bad anatomy, worst quality, low quality, blurry, distorted face"
   );
   const [selectedStyle, setSelectedStyle] = useState("photorealistic");
   const [loraScale, setLoraScale] = useState(0.85);
-  const [guidanceScale, setGuidanceScale] = useState(7.0);
-  const [steps, setSteps] = useState(30);
-  const [width, setWidth] = useState(1024);
-  const [height, setHeight] = useState(1024);
+  const [ipAdapterScale, setIpAdapterScale] = useState(0.7);
+  const [guidanceScale, setGuidanceScale] = useState(1.5);
+  const [steps, setSteps] = useState(6);
+  const [width, setWidth] = useState(512);
+  const [height, setHeight] = useState(512);
+  const [useLcm, setUseLcm] = useState(true);
   const [seed, setSeed] = useState("");
-  const [dryRun, setDryRun] = useState(true);
+  const [dryRun, setDryRun] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [latestResult, setLatestResult] = useState(null);
   const [error, setError] = useState("");
@@ -39,25 +62,33 @@ export default function PromptStudio({ onGenerated }) {
       .getHealth()
       .then((h) => {
         setHealth(h);
-        if (typeof h.mock_mode_default === "boolean") {
+        if (engineMode === "instant_faceid") {
+          setDryRun(false);
+        } else if (typeof h.mock_mode_default === "boolean") {
           setDryRun(h.mock_mode_default);
         }
       })
       .catch(() => {});
   }, []);
 
-  const handleModelChange = (modelId) => {
-    setBaseModel(modelId);
-    if (modelId === "stabilityai/stable-diffusion-xl-base-1.0") {
+  const handleEngineModeChange = (mode) => {
+    setEngineMode(mode);
+    if (mode === "instant_faceid") {
+      setBaseModel("dreamlike-art/dreamlike-diffusion-1.0");
+      setWidth(512);
+      setHeight(512);
+      setSteps(6);
+      setGuidanceScale(1.5);
+      setUseLcm(true);
+      setDryRun(false);
+    } else {
+      setBaseModel("stabilityai/stable-diffusion-xl-base-1.0");
       setWidth(1024);
       setHeight(1024);
       setSteps(30);
-    } else {
-      // Lighter 512x512 local CPU test model
-      setWidth(512);
-      setHeight(512);
-      setSteps(15);
-      setDryRun(false);
+      setGuidanceScale(7.0);
+      setUseLcm(false);
+      setDryRun(!health?.device?.cuda_available);
     }
   };
 
@@ -71,9 +102,13 @@ export default function PromptStudio({ onGenerated }) {
       const data = await aiApi.generate({
         prompt,
         negative_prompt: negativePrompt,
+        engine_mode: engineMode,
         base_model: baseModel,
         style_preset: selectedStyle,
         lora_scale: Number(loraScale),
+        ip_adapter_scale: Number(ipAdapterScale),
+        use_lcm: useLcm,
+        sampler: useLcm ? "lcm" : "dpm++_2m_karras",
         guidance_scale: Number(guidanceScale),
         steps: Number(steps),
         width: Number(width),
@@ -94,8 +129,8 @@ export default function PromptStudio({ onGenerated }) {
 
   const latestImage = latestResult?.images?.[0];
   const hasCuda = health?.device?.cuda_available;
-  const cachedModels = health?.cached_models || [];
-  const hasDreamlike = cachedModels.includes("dreamlike-art/dreamlike-diffusion-1.0");
+  const faceIdReady = health?.face_id_ready;
+  const ideas = engineMode === "instant_faceid" ? PROMPT_IDEAS_FACEID : PROMPT_IDEAS_SDXL;
 
   return (
     <div className="grid-2">
@@ -108,14 +143,14 @@ export default function PromptStudio({ onGenerated }) {
               Prompt Studio
             </h2>
             <p className="card-subtitle">
-              Describe any scene and select a photographic preset for your trained LoRA.
+              Synthesize personalized photos using Instant FaceID + LCM or SDXL LoRA.
             </p>
           </div>
 
           {health && (
             <span className={`badge ${hasCuda ? "badge-success" : "badge-warning"}`}>
               <Cpu size={13} />
-              {hasCuda ? `GPU: ${health.device.device_name}` : "CPU Mode (No CUDA GPU)"}
+              {hasCuda ? `GPU: ${health.device.device_name}` : "CPU Mode"}
             </span>
           )}
         </div>
@@ -123,28 +158,101 @@ export default function PromptStudio({ onGenerated }) {
         {error && <div className="alert-error">{error}</div>}
 
         <form onSubmit={handleGenerate}>
+          {/* Engine Mode Selector */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 10,
+              marginBottom: 16,
+            }}
+          >
+            <button
+              type="button"
+              className={`style-card ${engineMode === "instant_faceid" ? "selected" : ""}`}
+              onClick={() => handleEngineModeChange("instant_faceid")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
+                <Zap size={15} color="#a78bfa" /> Instant FaceID + LCM
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                6-Step Fast Open-Source • CPU &amp; GPU
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`style-card ${engineMode === "sdxl_lora" ? "selected" : ""}`}
+              onClick={() => handleEngineModeChange("sdxl_lora")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
+                <Cpu size={15} color="#60a5fa" /> SDXL LoRA
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                1024x1024 Fine-Tuned • GPU Required
+              </div>
+            </button>
+          </div>
+
+          {engineMode === "instant_faceid" && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "9px 12px",
+                borderRadius: "var(--radius-sm)",
+                background: faceIdReady
+                  ? "rgba(16, 185, 129, 0.1)"
+                  : "rgba(245, 158, 11, 0.1)",
+                border: `1px solid ${
+                  faceIdReady ? "rgba(16, 185, 129, 0.3)" : "rgba(245, 158, 11, 0.3)"
+                }`,
+                fontSize: "0.8rem",
+                marginBottom: 14,
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <CheckCircle2 size={14} color={faceIdReady ? "#34d399" : "#fbbf24"} />
+                {faceIdReady
+                  ? "FaceID Identity Ready (person_face_id.safetensors)"
+                  : "FaceID not enrolled yet — run Enroll FaceID on Tab 1 first!"}
+              </span>
+            </div>
+          )}
+
           <div className="form-group">
-            <label className="form-label">Diffusion Model</label>
+            <label className="form-label">Base Diffusion Model</label>
             <select
               className="select"
               value={baseModel}
-              onChange={(e) => handleModelChange(e.target.value)}
+              onChange={(e) => setBaseModel(e.target.value)}
             >
-              <option value="stabilityai/stable-diffusion-xl-base-1.0">
-                SDXL 1.0 + Trained Face LoRA (1024x1024 — GPU Recommended)
-              </option>
-              <option value="dreamlike-art/dreamlike-diffusion-1.0">
-                Dreamlike Diffusion 1.0 {hasDreamlike ? "(Cached Locally — Real CPU Test, 512x512)" : "(512x512)"}
-              </option>
+              {engineMode === "instant_faceid" ? (
+                <>
+                  <option value="dreamlike-art/dreamlike-diffusion-1.0">
+                    Dreamlike Diffusion 1.0 (Cached Local Model — 512x512)
+                  </option>
+                  <option value="SG161222/Realistic_Vision_V5.1_noVAE">
+                    Realistic Vision V5.1 (Photorealistic SD 1.5 — Downloads ~2GB)
+                  </option>
+                </>
+              ) : (
+                <option value="stabilityai/stable-diffusion-xl-base-1.0">
+                  SDXL 1.0 + Trained Face LoRA (1024x1024)
+                </option>
+              )}
             </select>
           </div>
 
           <div className="form-group">
             <label className="form-label">
               <span>Creative Prompt</span>
-              <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
-                Include trigger: sks person
-              </span>
+              {engineMode === "sdxl_lora" && (
+                <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
+                  Include trigger: sks person
+                </span>
+              )}
             </label>
             <textarea
               className="textarea"
@@ -157,7 +265,7 @@ export default function PromptStudio({ onGenerated }) {
 
           {/* Prompt Idea Chips */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
-            {PROMPT_IDEAS.map((idea, idx) => (
+            {ideas.map((idea, idx) => (
               <button
                 key={idx}
                 type="button"
@@ -221,24 +329,42 @@ export default function PromptStudio({ onGenerated }) {
                 color: "var(--text-secondary)",
               }}
             >
-              <Sliders size={14} /> Inference Parameters ({width}x{height})
+              <Sliders size={14} /> Inference Parameters ({width}x{height} •{" "}
+              {useLcm ? "LCM Fast" : "Standard"})
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  <span>LoRA Strength</span>
-                  <span style={{ fontFamily: "var(--font-mono)" }}>{loraScale}</span>
-                </label>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={1.4}
-                  step={0.05}
-                  value={loraScale}
-                  onChange={(e) => setLoraScale(parseFloat(e.target.value))}
-                />
-              </div>
+              {engineMode === "instant_faceid" ? (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    <span>Face Fidelity</span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>{ipAdapterScale}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1.2}
+                    step={0.05}
+                    value={ipAdapterScale}
+                    onChange={(e) => setIpAdapterScale(parseFloat(e.target.value))}
+                  />
+                </div>
+              ) : (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    <span>LoRA Strength</span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>{loraScale}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1.4}
+                    step={0.05}
+                    value={loraScale}
+                    onChange={(e) => setLoraScale(parseFloat(e.target.value))}
+                  />
+                </div>
+              )}
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">
@@ -247,8 +373,8 @@ export default function PromptStudio({ onGenerated }) {
                 </label>
                 <input
                   type="range"
-                  min={1}
-                  max={14}
+                  min={1.0}
+                  max={12.0}
                   step={0.5}
                   value={guidanceScale}
                   onChange={(e) => setGuidanceScale(parseFloat(e.target.value))}
@@ -262,9 +388,9 @@ export default function PromptStudio({ onGenerated }) {
                 </label>
                 <input
                   type="range"
-                  min={5}
+                  min={4}
                   max={50}
-                  step={5}
+                  step={1}
                   value={steps}
                   onChange={(e) => setSteps(parseInt(e.target.value, 10))}
                 />
@@ -300,7 +426,7 @@ export default function PromptStudio({ onGenerated }) {
               checked={dryRun}
               onChange={(e) => setDryRun(e.target.checked)}
             />
-            Dry-Run Preview Mode (Instant placeholder card without running Diffusers)
+            Dry-Run Preview Mode (Instant wireframe card without running Diffusers)
           </label>
 
           {dryRun ? (
@@ -320,8 +446,7 @@ export default function PromptStudio({ onGenerated }) {
             >
               <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
               <span>
-                Dry-Run Mode is checked, so clicking Generate returns an instant mock card.
-                Uncheck Dry-Run for real Diffusers AI image generation (note: on CPU without CUDA, generation takes 1–3 mins for 512x512 or 15+ mins for SDXL).
+                Dry-Run Mode is checked, so Generate produces a mock card. Uncheck for real AI generation!
               </span>
             </div>
           ) : !hasCuda && (
@@ -336,7 +461,9 @@ export default function PromptStudio({ onGenerated }) {
                 marginBottom: 14,
               }}
             >
-              Real AI Diffusion running on <strong>CPU</strong>. Please wait 1–3 minutes (Dreamlike 512x512) or 15+ mins (SDXL) while denoising steps run.
+              {engineMode === "instant_faceid"
+                ? "Running Real IP-Adapter-FaceID + LCM on CPU (first load downloads ~360MB adapters, takes ~20–45s per image)."
+                : "Running SDXL on CPU (takes 15–25+ mins per image). Switch to Instant FaceID + LCM for fast CPU results!"}
             </div>
           )}
 
@@ -349,7 +476,7 @@ export default function PromptStudio({ onGenerated }) {
             {generating ? (
               <>
                 <Loader2 size={18} className="spin" />
-                {dryRun ? "Generating Preview..." : "Running Diffusion Inference..."}
+                {dryRun ? "Generating Preview..." : "Synthesizing Real AI Photo..."}
               </>
             ) : (
               <>
@@ -394,11 +521,11 @@ export default function PromptStudio({ onGenerated }) {
             <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 24 }}>
               <Loader2 size={38} className="spin" color="#8b5cf6" />
               <p style={{ marginTop: 12, fontWeight: 500 }}>
-                {dryRun ? "Rendering Preview Card..." : "Synthesizing Real AI Image..."}
+                {dryRun ? "Rendering Preview Card..." : "Synthesizing Personalized AI Image..."}
               </p>
               {!dryRun && !hasCuda && (
                 <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 6 }}>
-                  CPU inference in progress — check terminal logs for step progress.
+                  {steps}-step LCM diffusion running on CPU — check terminal for download/step progress.
                 </p>
               )}
             </div>

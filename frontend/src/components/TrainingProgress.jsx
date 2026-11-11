@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Play, CheckCircle2, Loader2, ArrowRight, Activity } from "lucide-react";
+import { Cpu, Play, Zap, Loader2, ArrowRight, Activity } from "lucide-react";
 import { aiApi } from "../api/client";
 
 export default function TrainingProgress({ photoCount = 0, onTrainingComplete }) {
+  const [engineMode, setEngineMode] = useState("instant_faceid"); // 'instant_faceid' | 'sdxl_lora'
   const [triggerWord, setTriggerWord] = useState("sks person");
   const [steps, setSteps] = useState(15);
   const [rank, setRank] = useState(16);
-  const [dryRun, setDryRun] = useState(true);
+  const [dryRun, setDryRun] = useState(false);
+  const [health, setHealth] = useState(null);
   const [job, setJob] = useState({
     status: "idle",
+    engine_mode: "instant_faceid",
     progress_percent: 0,
     current_step: 0,
     total_steps: 0,
     current_loss: 0,
-    message: "Ready to start SDXL LoRA training",
+    faces_detected: 0,
+    message: "Ready for Instant FaceID enrollment (~2-5s)",
     lora_path: null,
+    face_id_path: null,
   });
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
@@ -35,16 +40,28 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
     aiApi
       .getHealth()
       .then((h) => {
-        if (typeof h.mock_mode_default === "boolean") {
+        setHealth(h);
+        if (engineMode === "instant_faceid" && h.insightface_available) {
+          setDryRun(false);
+        } else if (typeof h.mock_mode_default === "boolean") {
           setDryRun(h.mock_mode_default);
         }
       })
       .catch(() => {});
   }, []);
 
+  const handleModeChange = (mode) => {
+    setEngineMode(mode);
+    if (mode === "instant_faceid") {
+      setDryRun(health?.insightface_available ? false : true);
+    } else {
+      setDryRun(!health?.device?.cuda_available);
+    }
+  };
+
   useEffect(() => {
     if (!isRunning) return;
-    const timer = setInterval(pollStatus, 800);
+    const timer = setInterval(pollStatus, 600);
     return () => clearInterval(timer);
   }, [isRunning]);
 
@@ -57,6 +74,7 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
         trigger_word: triggerWord,
         steps: Number(steps),
         rank: Number(rank),
+        engine_mode: engineMode,
         dry_run: dryRun,
       });
       setJob(status);
@@ -80,10 +98,10 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
         <div>
           <h2 className="card-title">
             <Cpu size={20} color="#a78bfa" />
-            2. Train Personal SDXL LoRA
+            2. Personalize AI Identity
           </h2>
           <p className="card-subtitle">
-            Fine-tune your custom identity weights (.safetensors) via Diffusers.
+            Choose Instant FaceID (~seconds on CPU/GPU) or full SDXL LoRA training.
           </p>
         </div>
 
@@ -96,53 +114,110 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
       {error && <div className="alert-error">{error}</div>}
 
       <form onSubmit={handleStartTraining}>
-        <div className="form-group">
-          <label className="form-label">Subject Trigger Token</label>
-          <input
-            className="input"
-            type="text"
-            value={triggerWord}
-            onChange={(e) => setTriggerWord(e.target.value)}
+        {/* Engine Mode Switcher */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 10,
+            marginBottom: 16,
+          }}
+        >
+          <button
+            type="button"
+            className={`style-card ${engineMode === "instant_faceid" ? "selected" : ""}`}
+            onClick={() => handleModeChange("instant_faceid")}
             disabled={isRunning}
-            required
-          />
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
+              <Zap size={15} color="#a78bfa" /> Instant FaceID
+            </div>
+            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              ArcFace Embedding • ~2–5s on CPU/GPU
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`style-card ${engineMode === "sdxl_lora" ? "selected" : ""}`}
+            onClick={() => handleModeChange("sdxl_lora")}
+            disabled={isRunning}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
+              <Cpu size={15} color="#60a5fa" /> SDXL LoRA
+            </div>
+            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              Deep Weight Fine-Tuning • Needs GPU
+            </div>
+          </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="form-group">
-            <label className="form-label">Training Steps</label>
-            <input
-              className="input"
-              type="number"
-              min={5}
-              max={2000}
-              value={steps}
-              onChange={(e) => setSteps(e.target.value)}
-              disabled={isRunning}
-            />
-          </div>
+        {engineMode === "sdxl_lora" ? (
+          <>
+            <div className="form-group">
+              <label className="form-label">Subject Trigger Token</label>
+              <input
+                className="input"
+                type="text"
+                value={triggerWord}
+                onChange={(e) => setTriggerWord(e.target.value)}
+                disabled={isRunning}
+                required
+              />
+            </div>
 
-          <div className="form-group">
-            <label className="form-label">LoRA Rank</label>
-            <select
-              className="select"
-              value={rank}
-              onChange={(e) => setRank(e.target.value)}
-              disabled={isRunning}
-            >
-              <option value={8}>Rank 8 (Lightweight)</option>
-              <option value={16}>Rank 16 (Recommended)</option>
-              <option value={32}>Rank 32 (High Detail)</option>
-            </select>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Training Steps</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={5}
+                  max={2000}
+                  value={steps}
+                  onChange={(e) => setSteps(e.target.value)}
+                  disabled={isRunning}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">LoRA Rank</label>
+                <select
+                  className="select"
+                  value={rank}
+                  onChange={(e) => setRank(e.target.value)}
+                  disabled={isRunning}
+                >
+                  <option value={8}>Rank 8 (Lightweight)</option>
+                  <option value={16}>Rank 16 (Recommended)</option>
+                  <option value={32}>Rank 32 (High Detail)</option>
+                </select>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div
+            style={{
+              background: "rgba(124, 58, 237, 0.08)",
+              border: "1px solid rgba(124, 58, 237, 0.25)",
+              borderRadius: "var(--radius-sm)",
+              padding: "10px 12px",
+              fontSize: "0.82rem",
+              color: "#ddd6fe",
+              marginBottom: 14,
+            }}
+          >
+            Extracts and averages 512-dim InsightFace embeddings from your uploaded photos into{" "}
+            <code>person_face_id.safetensors</code> — zero backpropagation required.
           </div>
-        </div>
+        )}
 
         <label
           style={{
             display: "flex",
             alignItems: "center",
             gap: 10,
-            fontSize: "0.88rem",
+            fontSize: "0.86rem",
             color: "var(--text-secondary)",
             marginBottom: 18,
             cursor: "pointer",
@@ -154,7 +229,7 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
             onChange={(e) => setDryRun(e.target.checked)}
             disabled={isRunning}
           />
-          Fast Local Verification Mode (Dry-Run without CUDA GPU)
+          Simulation / Dry-Run Mode (Mock embeddings without running InsightFace/SDXL)
         </label>
 
         {/* Live Progress Indicator Panel */}
@@ -204,9 +279,13 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
               }}
             >
               <span>
-                Step: {job.current_step}/{job.total_steps}
+                Progress: {job.current_step}/{job.total_steps}
               </span>
-              <span>Loss: {job.current_loss}</span>
+              {job.engine_mode === "instant_faceid" ? (
+                <span>Faces Enrolled: {job.faces_detected}</span>
+              ) : (
+                <span>Loss: {job.current_loss}</span>
+              )}
             </div>
           )}
         </div>
@@ -220,7 +299,12 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
           >
             {isRunning ? (
               <>
-                <Loader2 size={16} className="spin" /> Training in Progress...
+                <Loader2 size={16} className="spin" /> Processing Identity...
+              </>
+            ) : engineMode === "instant_faceid" ? (
+              <>
+                <Zap size={16} />
+                {photoCount === 0 ? "Enroll Sample Photos (~2s)" : "Enroll FaceID (~2-5s)"}
               </>
             ) : (
               <>
