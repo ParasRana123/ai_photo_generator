@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Wand2, Sparkles, Sliders, Loader2, Download, Images } from "lucide-react";
+import { Wand2, Sparkles, Sliders, Loader2, Download, Images, AlertTriangle, Cpu } from "lucide-react";
 import { aiApi } from "../api/client";
 
 const PROMPT_IDEAS = [
@@ -11,6 +11,8 @@ const PROMPT_IDEAS = [
 
 export default function PromptStudio({ onGenerated }) {
   const [styles, setStyles] = useState([]);
+  const [health, setHealth] = useState(null);
+  const [baseModel, setBaseModel] = useState("stabilityai/stable-diffusion-xl-base-1.0");
   const [prompt, setPrompt] = useState("sks person in a tailored navy suit, studio lighting");
   const [negativePrompt, setNegativePrompt] = useState(
     "blurry, low quality, distorted face, extra limbs, watermark"
@@ -19,6 +21,8 @@ export default function PromptStudio({ onGenerated }) {
   const [loraScale, setLoraScale] = useState(0.85);
   const [guidanceScale, setGuidanceScale] = useState(7.0);
   const [steps, setSteps] = useState(30);
+  const [width, setWidth] = useState(1024);
+  const [height, setHeight] = useState(1024);
   const [seed, setSeed] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -30,7 +34,32 @@ export default function PromptStudio({ onGenerated }) {
       .getStyles()
       .then((data) => setStyles(data.styles || []))
       .catch(() => {});
+
+    aiApi
+      .getHealth()
+      .then((h) => {
+        setHealth(h);
+        if (typeof h.mock_mode_default === "boolean") {
+          setDryRun(h.mock_mode_default);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const handleModelChange = (modelId) => {
+    setBaseModel(modelId);
+    if (modelId === "stabilityai/stable-diffusion-xl-base-1.0") {
+      setWidth(1024);
+      setHeight(1024);
+      setSteps(30);
+    } else {
+      // Lighter 512x512 local CPU test model
+      setWidth(512);
+      setHeight(512);
+      setSteps(15);
+      setDryRun(false);
+    }
+  };
 
   const handleGenerate = async (e) => {
     e.preventDefault();
@@ -42,10 +71,13 @@ export default function PromptStudio({ onGenerated }) {
       const data = await aiApi.generate({
         prompt,
         negative_prompt: negativePrompt,
+        base_model: baseModel,
         style_preset: selectedStyle,
         lora_scale: Number(loraScale),
         guidance_scale: Number(guidanceScale),
         steps: Number(steps),
+        width: Number(width),
+        height: Number(height),
         seed: seed.trim() ? Number(seed) : null,
         num_images: 1,
         dry_run: dryRun,
@@ -61,6 +93,9 @@ export default function PromptStudio({ onGenerated }) {
   };
 
   const latestImage = latestResult?.images?.[0];
+  const hasCuda = health?.device?.cuda_available;
+  const cachedModels = health?.cached_models || [];
+  const hasDreamlike = cachedModels.includes("dreamlike-art/dreamlike-diffusion-1.0");
 
   return (
     <div className="grid-2">
@@ -76,11 +111,34 @@ export default function PromptStudio({ onGenerated }) {
               Describe any scene and select a photographic preset for your trained LoRA.
             </p>
           </div>
+
+          {health && (
+            <span className={`badge ${hasCuda ? "badge-success" : "badge-warning"}`}>
+              <Cpu size={13} />
+              {hasCuda ? `GPU: ${health.device.device_name}` : "CPU Mode (No CUDA GPU)"}
+            </span>
+          )}
         </div>
 
         {error && <div className="alert-error">{error}</div>}
 
         <form onSubmit={handleGenerate}>
+          <div className="form-group">
+            <label className="form-label">Diffusion Model</label>
+            <select
+              className="select"
+              value={baseModel}
+              onChange={(e) => handleModelChange(e.target.value)}
+            >
+              <option value="stabilityai/stable-diffusion-xl-base-1.0">
+                SDXL 1.0 + Trained Face LoRA (1024x1024 — GPU Recommended)
+              </option>
+              <option value="dreamlike-art/dreamlike-diffusion-1.0">
+                Dreamlike Diffusion 1.0 {hasDreamlike ? "(Cached Locally — Real CPU Test, 512x512)" : "(512x512)"}
+              </option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label className="form-label">
               <span>Creative Prompt</span>
@@ -163,7 +221,7 @@ export default function PromptStudio({ onGenerated }) {
                 color: "var(--text-secondary)",
               }}
             >
-              <Sliders size={14} /> Inference Parameters
+              <Sliders size={14} /> Inference Parameters ({width}x{height})
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -204,7 +262,7 @@ export default function PromptStudio({ onGenerated }) {
                 </label>
                 <input
                   type="range"
-                  min={10}
+                  min={5}
                   max={50}
                   step={5}
                   value={steps}
@@ -233,7 +291,7 @@ export default function PromptStudio({ onGenerated }) {
               gap: 10,
               fontSize: "0.86rem",
               color: "var(--text-secondary)",
-              marginBottom: 16,
+              marginBottom: 10,
               cursor: "pointer",
             }}
           >
@@ -242,8 +300,45 @@ export default function PromptStudio({ onGenerated }) {
               checked={dryRun}
               onChange={(e) => setDryRun(e.target.checked)}
             />
-            Dry-Run Preview Mode (Instant generation without CUDA GPU)
+            Dry-Run Preview Mode (Instant placeholder card without running Diffusers)
           </label>
+
+          {dryRun ? (
+            <div
+              style={{
+                background: "rgba(245, 158, 11, 0.1)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                color: "#fcd34d",
+                padding: "10px 12px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "0.8rem",
+                marginBottom: 14,
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+              }}
+            >
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                Dry-Run Mode is checked, so clicking Generate returns an instant mock card.
+                Uncheck Dry-Run for real Diffusers AI image generation (note: on CPU without CUDA, generation takes 1–3 mins for 512x512 or 15+ mins for SDXL).
+              </span>
+            </div>
+          ) : !hasCuda && (
+            <div
+              style={{
+                background: "rgba(99, 102, 241, 0.12)",
+                border: "1px solid rgba(99, 102, 241, 0.35)",
+                color: "#c7d2fe",
+                padding: "10px 12px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "0.8rem",
+                marginBottom: 14,
+              }}
+            >
+              Real AI Diffusion running on <strong>CPU</strong>. Please wait 1–3 minutes (Dreamlike 512x512) or 15+ mins (SDXL) while denoising steps run.
+            </div>
+          )}
 
           <button
             type="submit"
@@ -253,7 +348,8 @@ export default function PromptStudio({ onGenerated }) {
           >
             {generating ? (
               <>
-                <Loader2 size={18} className="spin" /> Generating Image...
+                <Loader2 size={18} className="spin" />
+                {dryRun ? "Generating Preview..." : "Running Diffusion Inference..."}
               </>
             ) : (
               <>
@@ -274,6 +370,11 @@ export default function PromptStudio({ onGenerated }) {
             </h2>
             <p className="card-subtitle">Real-time result preview with embedded PNG metadata.</p>
           </div>
+          {latestResult && (
+            <span className={`badge ${latestResult.is_mock ? "badge-warning" : "badge-success"}`}>
+              {latestResult.is_mock ? "Dry-Run Card" : "Real AI Render"}
+            </span>
+          )}
         </div>
 
         <div
@@ -290,9 +391,16 @@ export default function PromptStudio({ onGenerated }) {
           }}
         >
           {generating ? (
-            <div style={{ textAlign: "center", color: "var(--text-secondary)" }}>
+            <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 24 }}>
               <Loader2 size={38} className="spin" color="#8b5cf6" />
-              <p style={{ marginTop: 12, fontWeight: 500 }}>Running SDXL Diffusion...</p>
+              <p style={{ marginTop: 12, fontWeight: 500 }}>
+                {dryRun ? "Rendering Preview Card..." : "Synthesizing Real AI Image..."}
+              </p>
+              {!dryRun && !hasCuda && (
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 6 }}>
+                  CPU inference in progress — check terminal logs for step progress.
+                </p>
+              )}
             </div>
           ) : latestImage ? (
             <img

@@ -78,7 +78,7 @@ export default function ImageGallery({ refreshSignal = 0, onImagesLoaded }) {
               className="gallery-item"
               onClick={() => setSelected(item)}
             >
-              <img src={item.url} alt={item.prompt || item.filename} loading="lazy" />
+              <img src={item.url} alt={item.prompt || item.filename} />
               <div className="gallery-overlay">
                 <div
                   style={{

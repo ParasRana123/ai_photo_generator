@@ -153,28 +153,46 @@ class TrainingJobManager:
                 self.state.message = "Caching VAE latents & text embeddings..."
 
             cache_dir = Path("data/latents_cache")
-            dataset = SDXLDataset(data_dir=output_dir, trigger_word=trigger_word)
-            cache = LatentCache(cache_dir=cache_dir, device=device)
-            cache.cache_dataset(dataset)
-            cached_ds = CachedLatentDataset(cache_dir=cache_dir)
-
-            # Stage 3: LoRA Setup & Training
-            with self.lock:
-                self.state.status = "training"
-                self.state.progress_percent = 25.0
-                self.state.message = "Injecting LoRA rank adapters..."
-
             if dry_run:
+                dataset = SDXLDataset(data_dir=output_dir, trigger_word=trigger_word)
+                cache = LatentCache(cache_dir=cache_dir, device=device)
+                cache.cache_dataset(dataset)
+                cached_ds = CachedLatentDataset(cache_dir=cache_dir)
+
+                # Stage 3: LoRA Setup & Training
+                with self.lock:
+                    self.state.status = "training"
+                    self.state.progress_percent = 25.0
+                    self.state.message = "Injecting LoRA rank adapters (Dry-Run)..."
+
                 unet = MockSDXLUNet()
                 scheduler = None
             else:
-                try:
-                    loader = ModelLoader(cfg.model)
-                    unet = loader.load_unet(device)
-                    scheduler = loader.load_noise_scheduler()
-                except Exception:
-                    unet = MockSDXLUNet()
-                    scheduler = None
+                if device.type == "cpu":
+                    cfg.model.variant = None
+                loader = ModelLoader(cfg.model)
+                tok1, tok2 = loader.load_tokenizers()
+                dataset = SDXLDataset(
+                    data_dir=output_dir,
+                    tokenizer_1=tok1,
+                    tokenizer_2=tok2,
+                    trigger_word=trigger_word
+                )
+                vae = loader.load_vae(device)
+                te1, te2 = loader.load_text_encoders(device)
+                cache = LatentCache(cache_dir=cache_dir, device=device, dtype=loader.dtype)
+                cache.cache_dataset(dataset, vae=vae, text_encoder_1=te1, text_encoder_2=te2)
+                cached_ds = CachedLatentDataset(cache_dir=cache_dir)
+                del vae, te1, te2
+
+                # Stage 3: LoRA Setup & Training
+                with self.lock:
+                    self.state.status = "training"
+                    self.state.progress_percent = 25.0
+                    self.state.message = "Loading SDXL UNet and injecting LoRA..."
+
+                unet = loader.load_unet(device)
+                scheduler = loader.load_noise_scheduler()
 
             mgr = LoRANetworkManager(
                 rank=rank,

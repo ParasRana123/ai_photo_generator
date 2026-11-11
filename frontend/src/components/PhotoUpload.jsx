@@ -115,7 +115,7 @@ export default function PhotoUpload({ onCountChange }) {
         <div className="photo-grid">
           {photos.map((photo) => (
             <div key={photo.filename} className="photo-thumb">
-              <img src={photo.url} alt={photo.filename} loading="lazy" />
+              <img src={photo.url} alt={photo.filename} />
               <button
                 type="button"
                 className="photo-delete-btn"

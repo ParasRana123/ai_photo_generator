@@ -57,6 +57,7 @@ export const photosApi = {
 };
 
 export const aiApi = {
+  getHealth: () => apiRequest("/api/ai/health"),
   getStyles: () => apiRequest("/api/ai/styles"),
   startTraining: (payload) =>
     apiRequest("/api/ai/train", { method: "POST", body: JSON.stringify(payload) }),

@@ -51,6 +51,7 @@ class GenerateRequest(BaseModel):
     negative_prompt: Optional[str] = None
     style_preset: Optional[str] = "photorealistic"
     trigger_word: str = "sks person"
+    base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
     lora_scale: float = 0.85
     steps: int = 30
@@ -67,11 +68,19 @@ class GenerateRequest(BaseModel):
 @app.get("/health")
 def health_check() -> Dict[str, Any]:
     """Returns Python AI service health and compute device info."""
+    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+    cached_models = []
+    if hf_cache.exists():
+        for d in hf_cache.iterdir():
+            if d.is_dir() and d.name.startswith("models--"):
+                cached_models.append(d.name.replace("models--", "").replace("--", "/"))
+
     return {
         "status": "ok",
         "service": "python-ai-engine",
         "device": get_device_info(),
-        "mock_mode_default": MOCK_MODE_DEFAULT
+        "mock_mode_default": MOCK_MODE_DEFAULT,
+        "cached_models": cached_models
     }
 
 
@@ -120,30 +129,34 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
     """Generates images from a prompt using trained LoRA weights."""
     use_dry_run = req.dry_run if req.dry_run is not None else MOCK_MODE_DEFAULT
 
-    cfg = InferenceConfig(
-        prompt=req.prompt,
-        negative_prompt=req.negative_prompt or InferenceConfig().negative_prompt,
-        style_preset=req.style_preset,
-        trigger_word=req.trigger_word,
-        lora_weights_path=req.lora_weights_path,
-        lora_scale=req.lora_scale,
-        num_inference_steps=req.steps,
-        guidance_scale=req.guidance_scale,
-        width=req.width,
-        height=req.height,
-        seed=req.seed,
-        sampler=req.sampler,
-        output_dir=req.output_dir
-    )
-    cfg.validate()
+    try:
+        cfg = InferenceConfig(
+            base_model=req.base_model,
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt or InferenceConfig().negative_prompt,
+            style_preset=req.style_preset,
+            trigger_word=req.trigger_word,
+            lora_weights_path=req.lora_weights_path,
+            lora_scale=req.lora_scale,
+            num_inference_steps=req.steps,
+            guidance_scale=req.guidance_scale,
+            width=req.width,
+            height=req.height,
+            seed=req.seed,
+            sampler=req.sampler,
+            output_dir=req.output_dir
+        )
+        cfg.validate()
 
-    engine = SDXLInferenceEngine(config=cfg, mock=use_dry_run)
-    result = engine.generate(
-        prompt=req.prompt,
-        style_preset=req.style_preset,
-        num_images=req.num_images,
-        seed=req.seed
-    )
+        engine = SDXLInferenceEngine(config=cfg, mock=use_dry_run)
+        result = engine.generate(
+            prompt=req.prompt,
+            style_preset=req.style_preset,
+            num_images=req.num_images,
+            seed=req.seed
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
     items = []
     for path_str in result.saved_paths:
@@ -154,11 +167,13 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
             "prompt": result.prompt,
             "seed": result.seed,
             "style_preset": req.style_preset,
-            "duration_seconds": result.duration_seconds
+            "duration_seconds": result.duration_seconds,
+            "is_mock": use_dry_run
         })
 
     return {
         "status": "completed",
+        "is_mock": use_dry_run,
         "images": items,
         "metadata": result.metadata
     }

@@ -32,6 +32,14 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
 
   useEffect(() => {
     pollStatus();
+    aiApi
+      .getHealth()
+      .then((h) => {
+        if (typeof h.mock_mode_default === "boolean") {
+          setDryRun(h.mock_mode_default);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {

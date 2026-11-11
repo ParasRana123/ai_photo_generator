@@ -19,6 +19,24 @@ const FALLBACK_STYLES = [
 ];
 
 /**
+ * GET /api/ai/health
+ * Queries the Python AI Engine for compute device (CUDA vs CPU) and cached models.
+ */
+router.get("/health", async (req, res) => {
+  try {
+    const response = await axios.get(`${PYTHON_API_URL}/health`, { timeout: 3000 });
+    res.json(response.data);
+  } catch {
+    res.status(503).json({
+      status: "unavailable",
+      device: { cuda_available: false, device_type: "unknown", device_name: "Offline" },
+      mock_mode_default: true,
+      cached_models: [],
+    });
+  }
+});
+
+/**
  * POST /api/ai/train
  * Triggers LoRA model training on the Python FastAPI AI engine.
  */
@@ -73,11 +91,14 @@ router.post("/generate", authenticateToken, async (req, res) => {
     const response = await axios.post(`${PYTHON_API_URL}/generate`, {
       prompt: payload.prompt.trim(),
       negative_prompt: payload.negative_prompt,
+      base_model: payload.base_model || "stabilityai/stable-diffusion-xl-base-1.0",
       style_preset: payload.style_preset || "photorealistic",
       trigger_word: payload.trigger_word || "sks person",
       lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
       steps: payload.steps !== undefined ? Number(payload.steps) : 30,
       guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 7.0,
+      width: payload.width !== undefined ? Number(payload.width) : 1024,
+      height: payload.height !== undefined ? Number(payload.height) : 1024,
       seed: payload.seed !== undefined && payload.seed !== "" ? Number(payload.seed) : null,
       num_images: payload.num_images ? Number(payload.num_images) : 1,
       dry_run: payload.dry_run,

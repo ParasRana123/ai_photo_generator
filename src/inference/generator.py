@@ -96,25 +96,27 @@ class SDXLInferenceEngine:
         # 2. Configure deterministic generator
         generator = torch.Generator(device="cpu").manual_seed(current_seed)
 
-        # 3. Prepare cross-attention LoRA scale
-        cross_attention_kwargs = {"scale": self.config.lora_scale}
+        # 3. Prepare cross-attention LoRA scale only if LoRA is active
+        call_kwargs: Dict[str, Any] = {
+            "prompt": pos_prompt,
+            "negative_prompt": neg_prompt,
+            "width": w,
+            "height": h,
+            "num_inference_steps": steps,
+            "guidance_scale": cfg_scale,
+            "num_images_per_prompt": num_images,
+            "generator": generator,
+        }
+        if self.mock or getattr(self.pipeline, "_has_active_lora", False):
+            call_kwargs["cross_attention_kwargs"] = {"scale": self.config.lora_scale}
+        if callback is not None:
+            call_kwargs["callback"] = callback
 
         logger.info(f"Generating {num_images} image(s) with seed {current_seed}...")
         logger.info(f"  Prompt: {pos_prompt[:100]}...")
 
         # 4. Execute diffusion inference
-        pipe_output = self.pipeline(
-            prompt=pos_prompt,
-            negative_prompt=neg_prompt,
-            width=w,
-            height=h,
-            num_inference_steps=steps,
-            guidance_scale=cfg_scale,
-            num_images_per_prompt=num_images,
-            generator=generator,
-            cross_attention_kwargs=cross_attention_kwargs,
-            callback=callback
-        )
+        pipe_output = self.pipeline(**call_kwargs)
 
         images = pipe_output.images if hasattr(pipe_output, "images") else pipe_output
         duration = time.time() - start_time

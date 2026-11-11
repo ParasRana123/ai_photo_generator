@@ -11,6 +11,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from diffusers import (
+    DiffusionPipeline,
     StableDiffusionXLPipeline,
     AutoencoderKL,
     EulerDiscreteScheduler,
@@ -132,7 +133,11 @@ class SDXLPipelineLoader:
             if self.config.device
             else get_optimal_device()
         )
-        self.dtype = get_torch_dtype(self.config.mixed_precision)
+        # PyTorch CPU does not support fp16 inference for Conv2d/LayerNorm
+        if self.device.type == "cpu":
+            self.dtype = torch.float32
+        else:
+            self.dtype = get_torch_dtype(self.config.mixed_precision)
 
     def _configure_scheduler(self, pipeline: Any, sampler_name: str) -> None:
         """Configures the chosen sampling scheduler on the pipeline."""
@@ -175,39 +180,63 @@ class SDXLPipelineLoader:
             return pipe
 
         try:
-            logger.info(f"Loading SDXL base pipeline from {self.config.base_model}...")
+            logger.info(f"Loading diffusion pipeline from {self.config.base_model}...")
+            is_sdxl = "xl" in self.config.base_model.lower()
+            use_fp16_variant = (self.dtype == torch.float16)
 
-            # Load VAE if specified
-            vae = None
-            if self.config.vae_model:
-                try:
-                    vae = AutoencoderKL.from_pretrained(
-                        self.config.vae_model,
-                        torch_dtype=self.dtype
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not load custom VAE ({e}), using default VAE.")
+            if is_sdxl:
+                vae = None
+                if self.config.vae_model:
+                    try:
+                        vae = AutoencoderKL.from_pretrained(
+                            self.config.vae_model,
+                            torch_dtype=self.dtype
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not load custom VAE ({e}), using default VAE.")
 
-            pipe = StableDiffusionXLPipeline.from_pretrained(
-                self.config.base_model,
-                vae=vae,
-                torch_dtype=self.dtype,
-                variant="fp16" if self.config.mixed_precision == "fp16" else None
-            )
+                pipe = StableDiffusionXLPipeline.from_pretrained(
+                    self.config.base_model,
+                    vae=vae,
+                    torch_dtype=self.dtype,
+                    variant="fp16" if use_fp16_variant else None
+                )
+            else:
+                pipe = DiffusionPipeline.from_pretrained(
+                    self.config.base_model,
+                    torch_dtype=self.dtype
+                )
+
+            # Disable safety checker for local artistic generation if present
+            if hasattr(pipe, "safety_checker") and pipe.safety_checker is not None:
+                pipe.safety_checker = None
 
             # Configure Sampler
             self._configure_scheduler(pipe, self.config.sampler)
 
-            # Attach LoRA weights if present
+            # Attach LoRA weights if present and compatible with SDXL
+            pipe._has_active_lora = False
             lora_path = Path(self.config.lora_weights_path)
-            if lora_path.exists():
-                logger.info(f"Loading trained LoRA from: {lora_path} with scale {self.config.lora_scale}")
-                pipe.load_lora_weights(str(lora_path))
+            if is_sdxl and lora_path.exists():
+                from safetensors.torch import load_file
+                lora_tensors = load_file(str(lora_path))
+                is_mock_lora = any("cross_attn" in k for k in lora_tensors.keys()) and not any(
+                    "down_blocks" in k or "up_blocks" in k for k in lora_tensors.keys()
+                )
+                if is_mock_lora:
+                    logger.warning(
+                        f"Skipping '{lora_path.name}' because it was saved during a Dry-Run mock session. "
+                        "Train on a GPU without --dry-run to apply real face LoRA weights."
+                    )
+                else:
+                    logger.info(f"Loading trained LoRA from: {lora_path} with scale {self.config.lora_scale}")
+                    pipe.load_lora_weights(str(lora_path))
+                    pipe._has_active_lora = True
 
-                if self.config.fuse_lora and hasattr(pipe, "fuse_lora"):
-                    pipe.fuse_lora(lora_scale=self.config.lora_scale)
-                elif hasattr(pipe, "set_adapters"):
-                    pipe.set_adapters(["default"], adapter_weights=[self.config.lora_scale])
+                    if self.config.fuse_lora and hasattr(pipe, "fuse_lora"):
+                        pipe.fuse_lora(lora_scale=self.config.lora_scale)
+                    elif hasattr(pipe, "set_adapters"):
+                        pipe.set_adapters(["default"], adapter_weights=[self.config.lora_scale])
 
             # Apply memory optimizations
             if self.device.type == "cuda":
@@ -226,6 +255,7 @@ class SDXLPipelineLoader:
             return pipe
 
         except Exception as err:
-            logger.warning(f"Real SDXL pipeline could not be loaded ({err}). Falling back to MockPipeline.")
-            return self.load_pipeline(mock=True)
+            raise RuntimeError(
+                f"Failed to load real SDXL pipeline ({self.config.base_model}) on {self.device.type.upper()}: {err}"
+            ) from err
 
