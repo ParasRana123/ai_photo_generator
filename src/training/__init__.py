@@ -9,6 +9,7 @@ from .latent_cache import LatentCache, CachedLatentDataset
 from .model_loader import ModelLoader, MockSDXLUNet
 from .lora_network import LoRANetworkManager
 from .trainer import SDXLLoRATrainer
+from .saver import LoRASaver
 
 __all__ = [
     "SDXLDataset",
@@ -17,5 +18,6 @@ __all__ = [
     "ModelLoader",
     "MockSDXLUNet",
     "LoRANetworkManager",
-    "SDXLLoRATrainer"
+    "SDXLLoRATrainer",
+    "LoRASaver"
 ]
