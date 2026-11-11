@@ -18,20 +18,32 @@ VALID_SAMPLERS = [
     "dpm++_2m_karras",
     "ddim",
     "heun",
-    "lms"
+    "lms",
+    "lcm"
 ]
+
+VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid"]
 
 
 @dataclass
 class InferenceConfig:
-    """Configuration for running inference with base SDXL and trained LoRA weights."""
+    """Configuration for running inference with SDXL LoRA or Fast Instant FaceID + LCM."""
 
-    # Model & LoRA weights
+    # Engine Mode & Model Weights
+    engine_mode: str = "sdxl_lora"  # "sdxl_lora" or "instant_faceid"
     base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
     vae_model: Optional[str] = "madebyollin/sdxl-vae-fp16-fix"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
     lora_scale: float = 0.85
     fuse_lora: bool = False
+
+    # Fast Instant FaceID + LCM Settings
+    face_id_path: str = "checkpoints/person_face_id.safetensors"
+    ip_adapter_repo: str = "h94/IP-Adapter-FaceID"
+    ip_adapter_weight_name: str = "ip-adapter-faceid_sd15.bin"
+    ip_adapter_scale: float = 0.7
+    use_lcm: bool = False
+    lcm_lora_repo: str = "latent-consistency/lcm-lora-sdv1-5"
 
     # Prompt & Identity
     prompt: str = "A professional studio portrait of sks person in a tailored navy suit, sharp focus, 8k, cinematic lighting"
@@ -65,6 +77,8 @@ class InferenceConfig:
 
     def validate(self) -> None:
         """Validates inference parameters."""
+        if self.engine_mode not in VALID_ENGINE_MODES:
+            raise ValueError(f"Invalid engine_mode '{self.engine_mode}'. Choose from {VALID_ENGINE_MODES}")
         if self.width % 8 != 0 or self.height % 8 != 0:
             raise ValueError(f"Width ({self.width}) and Height ({self.height}) must be divisible by 8.")
         if self.width < 512 or self.height < 512:
@@ -75,6 +89,8 @@ class InferenceConfig:
             raise ValueError(f"guidance_scale must be >= 1.0, got {self.guidance_scale}")
         if self.lora_scale < 0.0 or self.lora_scale > 2.0:
             raise ValueError(f"lora_scale should be between 0.0 and 2.0, got {self.lora_scale}")
+        if self.ip_adapter_scale < 0.0 or self.ip_adapter_scale > 2.0:
+            raise ValueError(f"ip_adapter_scale should be between 0.0 and 2.0, got {self.ip_adapter_scale}")
         if self.sampler.lower() not in VALID_SAMPLERS:
             raise ValueError(f"Unknown sampler: {self.sampler}. Choose from {VALID_SAMPLERS}")
         if self.mixed_precision not in ("fp16", "bf16", "fp32", "no"):
