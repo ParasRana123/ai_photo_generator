@@ -105,7 +105,7 @@ def health_check() -> Dict[str, Any]:
         "insightface_available": insightface_ok,
         "cloud_zerogpu_available": gradio_ok,
         "cloud_profile_ready": Path("checkpoints/cloud_face_profile.json").exists(),
-        "cloud_providers": ["auto", "pulid_flux", "instantid", "pulid_sdxl"],
+        "cloud_providers": ["auto", "pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"],
         "face_id_ready": Path("checkpoints/person_face_id.safetensors").exists(),
         "sdxl_lora_ready": Path("checkpoints/person_sdxl_lora.safetensors").exists()
     }

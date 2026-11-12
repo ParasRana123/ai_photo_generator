@@ -21,6 +21,7 @@ class CloudZeroGPUClient:
     PROVIDER_SPACES = {
         "pulid_flux": "yanze/PuLID-FLUX",
         "instantid": "InstantX/InstantID",
+        "photomaker_v2": "TencentARC/PhotoMaker-V2",
         "pulid_sdxl": "yanze/PuLID",
     }
 
@@ -164,6 +165,42 @@ class CloudZeroGPUClient:
         img = self._extract_image_from_output(gallery[0])
         return img, {"cloud_space": "yanze/PuLID", "cloud_model": "SDXL-Lightning + PuLID"}
 
+    def _run_photomaker_v2(
+        self,
+        photos: List[str],
+        prompt: str,
+        negative_prompt: str,
+        steps: int,
+        guidance_scale: float,
+        seed: int,
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        from gradio_client import Client, handle_file
+
+        client = Client(self.PROVIDER_SPACES["photomaker_v2"], token=self.hf_token, verbose=False)
+        uploaded = [handle_file(p) for p in photos[:4]]
+        # PhotoMaker requires the trigger keyword 'img' in the prompt to link the identity
+        pm_prompt = prompt if "img" in prompt.lower() else f"portrait of a person img, {prompt}"
+        res = client.predict(
+            upload_images=uploaded,
+            prompt=pm_prompt,
+            negative_prompt=negative_prompt,
+            aspect_ratio_name="Instagram (1:1)",
+            style_name="Photographic (Default)",
+            num_steps=float(min(max(steps, 20), 40)),
+            style_strength_ratio=20.0,
+            num_outputs=1.0,
+            guidance_scale=float(min(max(guidance_scale, 3.5), 7.0)),
+            seed=float(seed),
+            use_doodle=False,
+            sketch_image={"background": None, "layers": [], "composite": None, "id": None},
+            adapter_conditioning_scale=0.7,
+            adapter_conditioning_factor=0.8,
+            api_name="/generate_image",
+        )
+        gallery = res[0]
+        img = self._extract_image_from_output(gallery[0])
+        return img, {"cloud_space": "TencentARC/PhotoMaker-V2", "cloud_model": "SDXL + PhotoMaker-V2"}
+
     @staticmethod
     def _generate_mock_cloud_image(
         width: int,
@@ -210,7 +247,7 @@ class CloudZeroGPUClient:
             )
 
         chain = (
-            ["pulid_flux", "instantid", "pulid_sdxl"]
+            ["pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"]
             if provider == "auto"
             else [provider]
         )
@@ -228,6 +265,11 @@ class CloudZeroGPUClient:
                     img, meta = self._run_instantid(
                         reference_photos, prompt, negative_prompt,
                         steps, guidance_scale, id_weight, actual_seed
+                    )
+                elif candidate == "photomaker_v2":
+                    img, meta = self._run_photomaker_v2(
+                        reference_photos, prompt, negative_prompt,
+                        steps, guidance_scale, actual_seed
                     )
                 elif candidate == "pulid_sdxl":
                     img, meta = self._run_pulid_sdxl(

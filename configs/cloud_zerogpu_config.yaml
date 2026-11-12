@@ -1,7 +1,7 @@
 # Free Cloud ZeroGPU Configuration (fal.ai Free Alternative)
 inference:
   engine_mode: "cloud_zerogpu"
-  cloud_provider: "auto" # "auto", "pulid_flux", "instantid", "pulid_sdxl"
+  cloud_provider: "auto" # "auto", "pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"
   cloud_profile_path: "checkpoints/cloud_face_profile.json"
   id_weight: 1.0
   hf_token: null

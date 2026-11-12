@@ -23,7 +23,7 @@ VALID_SAMPLERS = [
 ]
 
 VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid", "cloud_zerogpu"]
-VALID_CLOUD_PROVIDERS = ["auto", "pulid_flux", "instantid", "pulid_sdxl"]
+VALID_CLOUD_PROVIDERS = ["auto", "pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"]
 
 
 @dataclass
