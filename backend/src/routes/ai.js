@@ -46,7 +46,7 @@ router.post("/train", authenticateToken, async (req, res) => {
       trigger_word = "sks person",
       steps = 10,
       rank = 16,
-      engine_mode = "instant_faceid",
+      engine_mode = "cloud_zerogpu",
       dry_run,
     } = req.body || {};
     const response = await axios.post(`${PYTHON_API_URL}/train`, {
@@ -95,27 +95,35 @@ router.post("/generate", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Prompt is required to generate an image." });
     }
 
-    const response = await axios.post(`${PYTHON_API_URL}/generate`, {
-      prompt: payload.prompt.trim(),
-      negative_prompt: payload.negative_prompt,
-      engine_mode: payload.engine_mode || "sdxl_lora",
-      base_model: payload.base_model || "stabilityai/stable-diffusion-xl-base-1.0",
-      style_preset: payload.style_preset || "photorealistic",
-      trigger_word: payload.trigger_word || "sks person",
-      lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
-      ip_adapter_scale:
-        payload.ip_adapter_scale !== undefined ? Number(payload.ip_adapter_scale) : 0.7,
-      use_lcm: Boolean(payload.use_lcm),
-      sampler: payload.sampler || (payload.use_lcm ? "lcm" : "dpm++_2m_karras"),
-      face_id_path: payload.face_id_path || "checkpoints/person_face_id.safetensors",
-      steps: payload.steps !== undefined ? Number(payload.steps) : 30,
-      guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 7.0,
-      width: payload.width !== undefined ? Number(payload.width) : 1024,
-      height: payload.height !== undefined ? Number(payload.height) : 1024,
-      seed: payload.seed !== undefined && payload.seed !== "" ? Number(payload.seed) : null,
-      num_images: payload.num_images ? Number(payload.num_images) : 1,
-      dry_run: payload.dry_run,
-    });
+    const response = await axios.post(
+      `${PYTHON_API_URL}/generate`,
+      {
+        prompt: payload.prompt.trim(),
+        negative_prompt: payload.negative_prompt,
+        engine_mode: payload.engine_mode || "cloud_zerogpu",
+        base_model: payload.base_model || "yanze/PuLID-FLUX",
+        style_preset: payload.style_preset || "photorealistic",
+        trigger_word: payload.trigger_word || "sks person",
+        lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
+        ip_adapter_scale:
+          payload.ip_adapter_scale !== undefined ? Number(payload.ip_adapter_scale) : 0.7,
+        use_lcm: Boolean(payload.use_lcm),
+        sampler: payload.sampler || (payload.use_lcm ? "lcm" : "euler"),
+        face_id_path: payload.face_id_path || "checkpoints/person_face_id.safetensors",
+        cloud_provider: payload.cloud_provider || "auto",
+        cloud_profile_path: payload.cloud_profile_path || "checkpoints/cloud_face_profile.json",
+        id_weight: payload.id_weight !== undefined ? Number(payload.id_weight) : 1.0,
+        hf_token: payload.hf_token || null,
+        steps: payload.steps !== undefined ? Number(payload.steps) : 20,
+        guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 4.0,
+        width: payload.width !== undefined ? Number(payload.width) : 896,
+        height: payload.height !== undefined ? Number(payload.height) : 1152,
+        seed: payload.seed !== undefined && payload.seed !== "" ? Number(payload.seed) : null,
+        num_images: payload.num_images ? Number(payload.num_images) : 1,
+        dry_run: payload.dry_run,
+      },
+      { timeout: 180000 }
+    );
 
     const data = response.data;
     // Save generated item records into gallery store
