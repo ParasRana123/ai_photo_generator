@@ -144,9 +144,9 @@ class SDXLPipelineLoader:
             if self.config.device
             else get_optimal_device()
         )
-        # PyTorch CPU does not support fp16 inference for Conv2d/LayerNorm
+        # PyTorch CPU does not support fp16 Conv2d/LayerNorm; bfloat16 halves RAM footprint on CPU
         if self.device.type == "cpu":
-            self.dtype = torch.float32
+            self.dtype = torch.bfloat16
         else:
             self.dtype = get_torch_dtype(self.config.mixed_precision)
 
@@ -229,12 +229,14 @@ class SDXLPipelineLoader:
                     self.config.base_model,
                     vae=vae,
                     torch_dtype=self.dtype,
-                    variant="fp16" if use_fp16_variant else None
+                    variant="fp16" if use_fp16_variant else None,
+                    low_cpu_mem_usage=True
                 )
             else:
                 pipe = DiffusionPipeline.from_pretrained(
                     self.config.base_model,
-                    torch_dtype=self.dtype
+                    torch_dtype=self.dtype,
+                    low_cpu_mem_usage=True
                 )
 
             # Disable safety checker for local artistic generation if present
@@ -297,21 +299,25 @@ class SDXLPipelineLoader:
                     elif hasattr(pipe, "set_adapters"):
                         pipe.set_adapters(["default"], adapter_weights=[self.config.lora_scale])
 
-            # Apply memory optimizations
+            # Apply memory optimizations and ensure consistent dtype across adapters
             if self.device.type == "cuda":
                 if self.config.enable_cpu_offload and hasattr(pipe, "enable_model_cpu_offload"):
                     pipe.enable_model_cpu_offload()
                 else:
-                    pipe.to(self.device)
+                    pipe.to(self.device, dtype=self.dtype)
 
                 if self.config.enable_vae_tiling and hasattr(pipe, "enable_vae_tiling"):
                     pipe.enable_vae_tiling()
                 if self.config.enable_vae_slicing and hasattr(pipe, "enable_vae_slicing"):
                     pipe.enable_vae_slicing()
             else:
-                pipe.to(self.device)
-                if self.config.enable_vae_slicing and hasattr(pipe, "enable_vae_slicing"):
-                    pipe.enable_vae_slicing()
+                pipe.to(self.device, dtype=self.dtype)
+                # Do not call enable_attention_slicing when IP-Adapter is active,
+                # as SlicedAttnProcessor replaces IPAdapterAttnProcessor2_0.
+                if not pipe._has_active_ip_adapter and hasattr(pipe, "enable_attention_slicing"):
+                    pipe.enable_attention_slicing("max")
+                if hasattr(pipe, "vae") and hasattr(pipe.vae, "enable_slicing"):
+                    pipe.vae.enable_slicing()
 
             self._PIPELINE_CACHE[cache_key] = pipe
             return pipe
