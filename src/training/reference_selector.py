@@ -69,6 +69,47 @@ class ReferencePhotoSelector:
             "score": round(total_score, 2)
         }
 
+    def prepare_portrait_crop(
+        self,
+        image_path: Union[str, Path],
+        output_path: Union[str, Path],
+        target_size: tuple = (1024, 1024),
+        padding_scale: float = 2.6,
+    ) -> str:
+        """
+        Crops a clean, face-centered portrait (default 1024x1024) with generous headroom so
+        cloud models do not inherit extreme phone aspect ratios (e.g. 448x1024) or low-res faces.
+        """
+        p = Path(image_path)
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        img = ImageOps.exif_transpose(Image.open(p)).convert("RGB")
+        w, h = img.size
+
+        face_rect = self.face_detector.detect_primary_face(img) if self.face_detector else None
+        if face_rect is not None:
+            fx, fy, fw, fh = face_rect
+            cx = fx + fw // 2
+            cy = fy + fh // 2
+            box = int(max(fw, fh) * padding_scale)
+            box = min(box, min(w, h))
+            half = box // 2
+            x1 = max(0, min(w - box, cx - half))
+            y1 = max(0, min(h - box, cy - int(box * 0.42)))
+            x2 = min(w, x1 + box)
+            y2 = min(h, y1 + box)
+        else:
+            side = min(w, h)
+            x1 = (w - side) // 2
+            y1 = max(0, (h - side) // 3)
+            x2 = x1 + side
+            y2 = y1 + side
+
+        cropped = img.crop((x1, y1, x2, y2)).resize(target_size, Image.Resampling.LANCZOS)
+        cropped.save(out, format="JPEG", quality=95)
+        return str(out)
+
     def build_profile(
         self,
         input_dir: Union[str, Path] = "data/raw",
@@ -78,7 +119,8 @@ class ReferencePhotoSelector:
         mock: bool = False
     ) -> Dict[str, Any]:
         """
-        Ranks all photos in input_dir and saves the top reference photos to a JSON profile.
+        Ranks all photos in input_dir and saves the top reference photos + clean square portraits
+        to a JSON profile.
         """
         start_time = time.time()
         in_dir = Path(input_dir)
@@ -119,11 +161,25 @@ class ReferencePhotoSelector:
 
         ranked = sorted(scored, key=lambda x: x["score"], reverse=True)
         top_photos = [item["path"] for item in ranked[:4]]
+
+        prepared_photos: List[str] = []
+        if not mock:
+            crops_dir = out_file.parent / "cloud_portraits"
+            for i, photo_path in enumerate(top_photos):
+                crop_out = crops_dir / f"portrait_{i}.jpg"
+                try:
+                    prepared_photos.append(self.prepare_portrait_crop(photo_path, crop_out))
+                except Exception:
+                    prepared_photos.append(photo_path)
+        else:
+            prepared_photos = list(top_photos)
+
         duration = round(time.time() - start_time, 3)
 
         profile = {
-            "primary_photo": top_photos[0],
-            "top_photos": top_photos,
+            "primary_photo": prepared_photos[0],
+            "top_photos": prepared_photos,
+            "raw_top_photos": top_photos,
             "total_photos_analyzed": len(ranked),
             "faces_detected": sum(1 for item in ranked if item["face_detected"]),
             "trigger_word": trigger_word,
