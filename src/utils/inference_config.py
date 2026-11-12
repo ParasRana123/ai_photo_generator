@@ -22,15 +22,16 @@ VALID_SAMPLERS = [
     "lcm"
 ]
 
-VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid"]
+VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid", "cloud_zerogpu"]
+VALID_CLOUD_PROVIDERS = ["auto", "pulid_flux", "instantid", "pulid_sdxl"]
 
 
 @dataclass
 class InferenceConfig:
-    """Configuration for running inference with SDXL LoRA or Fast Instant FaceID + LCM."""
+    """Configuration for running inference with SDXL LoRA, Fast FaceID, or Free Cloud ZeroGPU."""
 
     # Engine Mode & Model Weights
-    engine_mode: str = "sdxl_lora"  # "sdxl_lora" or "instant_faceid"
+    engine_mode: str = "sdxl_lora"  # "sdxl_lora", "instant_faceid", or "cloud_zerogpu"
     base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
     vae_model: Optional[str] = "madebyollin/sdxl-vae-fp16-fix"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
@@ -44,6 +45,13 @@ class InferenceConfig:
     ip_adapter_scale: float = 0.7
     use_lcm: bool = False
     lcm_lora_repo: str = "latent-consistency/lcm-lora-sdv1-5"
+
+    # Free Cloud ZeroGPU (fal.ai Free Alternative) Settings
+    cloud_provider: str = "auto"  # "auto", "pulid_flux", "instantid", "pulid_sdxl"
+    cloud_profile_path: str = "checkpoints/cloud_face_profile.json"
+    reference_image_path: Optional[str] = None
+    id_weight: float = 1.0
+    hf_token: Optional[str] = None
 
     # Prompt & Identity
     prompt: str = "A professional studio portrait of sks person in a tailored navy suit, sharp focus, 8k, cinematic lighting"
@@ -79,6 +87,10 @@ class InferenceConfig:
         """Validates inference parameters."""
         if self.engine_mode not in VALID_ENGINE_MODES:
             raise ValueError(f"Invalid engine_mode '{self.engine_mode}'. Choose from {VALID_ENGINE_MODES}")
+        if self.cloud_provider not in VALID_CLOUD_PROVIDERS:
+            raise ValueError(f"Invalid cloud_provider '{self.cloud_provider}'. Choose from {VALID_CLOUD_PROVIDERS}")
+        if self.id_weight < 0.0 or self.id_weight > 2.0:
+            raise ValueError(f"id_weight should be between 0.0 and 2.0, got {self.id_weight}")
         if self.width % 8 != 0 or self.height % 8 != 0:
             raise ValueError(f"Width ({self.width}) and Height ({self.height}) must be divisible by 8.")
         if self.width < 512 or self.height < 512:

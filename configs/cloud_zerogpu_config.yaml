@@ -1,0 +1,26 @@
+# Free Cloud ZeroGPU Configuration (fal.ai Free Alternative)
+inference:
+  engine_mode: "cloud_zerogpu"
+  cloud_provider: "auto" # "auto", "pulid_flux", "instantid", "pulid_sdxl"
+  cloud_profile_path: "checkpoints/cloud_face_profile.json"
+  id_weight: 1.0
+  hf_token: null
+
+  base_model: "yanze/PuLID-FLUX"
+  vae_model: null
+  prompt: "portrait of a man in a tailored navy suit, soft studio lighting, photorealistic, 8k"
+  negative_prompt: "bad quality, worst quality, text, signature, watermark, extra limbs, deformed face"
+  style_preset: "photorealistic"
+  auto_inject_trigger: false
+
+  width: 896
+  height: 1152
+  num_inference_steps: 20
+  guidance_scale: 4.0
+  seed: 42
+  num_images_per_prompt: 1
+  sampler: "euler"
+
+  output_dir: "outputs/generated"
+  save_format: "PNG"
+  embed_metadata: true
