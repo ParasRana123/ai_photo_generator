@@ -144,9 +144,9 @@ class SDXLPipelineLoader:
             if self.config.device
             else get_optimal_device()
         )
-        # PyTorch CPU does not support fp16 Conv2d/LayerNorm; bfloat16 halves RAM footprint on CPU
+        # PyTorch CPU does not support fp16 Conv2d/LayerNorm; honor explicit bf16 or default to fp32
         if self.device.type == "cpu":
-            self.dtype = torch.bfloat16
+            self.dtype = torch.bfloat16 if self.config.mixed_precision == "bf16" else torch.float32
         else:
             self.dtype = get_torch_dtype(self.config.mixed_precision)
 
