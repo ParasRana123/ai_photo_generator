@@ -43,7 +43,7 @@ class TrainRequest(BaseModel):
     trigger_word: str = "sks person"
     steps: int = 10
     rank: int = 16
-    engine_mode: str = "instant_faceid"
+    engine_mode: str = "cloud_zerogpu"
     dry_run: Optional[bool] = None
 
 
@@ -52,20 +52,24 @@ class GenerateRequest(BaseModel):
     negative_prompt: Optional[str] = None
     style_preset: Optional[str] = "photorealistic"
     trigger_word: str = "sks person"
-    engine_mode: str = "sdxl_lora"
-    base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
+    engine_mode: str = "cloud_zerogpu"
+    base_model: str = "yanze/PuLID-FLUX"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
     lora_scale: float = 0.85
     face_id_path: str = "checkpoints/person_face_id.safetensors"
     ip_adapter_scale: float = 0.7
     use_lcm: bool = False
-    steps: int = 30
-    guidance_scale: float = 7.0
-    width: int = 1024
-    height: int = 1024
+    cloud_provider: str = "auto"
+    cloud_profile_path: str = "checkpoints/cloud_face_profile.json"
+    id_weight: float = 1.0
+    hf_token: Optional[str] = None
+    steps: int = 20
+    guidance_scale: float = 4.0
+    width: int = 896
+    height: int = 1152
     seed: Optional[int] = None
     num_images: int = 1
-    sampler: str = "dpm++_2m_karras"
+    sampler: str = "euler"
     output_dir: str = "outputs/generated"
     dry_run: Optional[bool] = None
 
@@ -86,6 +90,12 @@ def health_check() -> Dict[str, Any]:
     except ImportError:
         insightface_ok = False
 
+    try:
+        import gradio_client  # noqa: F401
+        gradio_ok = True
+    except ImportError:
+        gradio_ok = False
+
     return {
         "status": "ok",
         "service": "python-ai-engine",
@@ -93,6 +103,9 @@ def health_check() -> Dict[str, Any]:
         "mock_mode_default": MOCK_MODE_DEFAULT,
         "cached_models": cached_models,
         "insightface_available": insightface_ok,
+        "cloud_zerogpu_available": gradio_ok,
+        "cloud_profile_ready": Path("checkpoints/cloud_face_profile.json").exists(),
+        "cloud_providers": ["auto", "pulid_flux", "instantid", "pulid_sdxl"],
         "face_id_ready": Path("checkpoints/person_face_id.safetensors").exists(),
         "sdxl_lora_ready": Path("checkpoints/person_sdxl_lora.safetensors").exists()
     }
@@ -157,6 +170,10 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
             face_id_path=req.face_id_path,
             ip_adapter_scale=req.ip_adapter_scale,
             use_lcm=req.use_lcm,
+            cloud_provider=req.cloud_provider,
+            cloud_profile_path=req.cloud_profile_path,
+            id_weight=req.id_weight,
+            hf_token=req.hf_token,
             num_inference_steps=req.steps,
             guidance_scale=req.guidance_scale,
             width=req.width,
@@ -186,6 +203,8 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
             "prompt": result.prompt,
             "seed": result.seed,
             "style_preset": req.style_preset,
+            "cloud_provider": result.metadata.get("cloud_provider", ""),
+            "cloud_space": result.metadata.get("cloud_space", ""),
             "duration_seconds": result.duration_seconds,
             "is_mock": use_dry_run
         })

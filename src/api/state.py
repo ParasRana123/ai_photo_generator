@@ -21,13 +21,14 @@ from src.training.lora_network import LoRANetworkManager
 from src.training.trainer import SDXLLoRATrainer
 from src.training.saver import LoRASaver
 from src.training.face_encoder import FaceIdentityEncoder
+from src.training.reference_selector import ReferencePhotoSelector
 from src.utils.logger import TrainingLogger
 
 
 @dataclass
 class TrainingJobState:
     status: str = "idle"  # idle, preprocessing, caching, training, saving, completed, failed
-    engine_mode: str = "instant_faceid"
+    engine_mode: str = "cloud_zerogpu"
     progress_percent: float = 0.0
     current_step: int = 0
     total_steps: int = 0
@@ -36,6 +37,7 @@ class TrainingJobState:
     message: str = "Ready to train"
     lora_path: Optional[str] = None
     face_id_path: Optional[str] = None
+    cloud_profile_path: Optional[str] = None
     trigger_word: str = "sks person"
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
@@ -104,9 +106,13 @@ class TrainingJobManager:
                 total_steps=steps,
                 trigger_word=trigger_word,
                 message=(
-                    "Initializing Instant FaceID Encoder..."
-                    if engine_mode == "instant_faceid"
-                    else "Starting photo preprocessing..."
+                    "Ranking sharpest reference photos for Cloud ZeroGPU..."
+                    if engine_mode == "cloud_zerogpu"
+                    else (
+                        "Initializing Instant FaceID Encoder..."
+                        if engine_mode == "instant_faceid"
+                        else "Starting photo preprocessing..."
+                    )
                 ),
                 started_at=time.time()
             )
@@ -146,6 +152,42 @@ class TrainingJobManager:
             ]
             if len(raw_images) == 0:
                 generate_sample_portraits(raw_path, count=12)
+
+            # Free Cloud ZeroGPU Enrollment Path (ranks sharpest face photos in ~1-5s)
+            if engine_mode == "cloud_zerogpu":
+                with self.lock:
+                    self.state.status = "training"
+                    self.state.progress_percent = 15.0
+                    self.state.message = "Scoring facial clarity and selecting top portraits..."
+
+                def on_rank_progress(done: int, total: int):
+                    with self.lock:
+                        self.state.current_step = done
+                        self.state.total_steps = total
+                        pct = 15.0 + (done / max(1, total)) * 80.0
+                        self.state.progress_percent = round(pct, 1)
+                        self.state.message = f"Analyzed {done}/{total} photos..."
+
+                selector = ReferencePhotoSelector()
+                profile = selector.build_profile(
+                    input_dir=raw_path,
+                    output_path="checkpoints/cloud_face_profile.json",
+                    trigger_word=trigger_word,
+                    progress_callback=on_rank_progress,
+                    mock=dry_run
+                )
+
+                with self.lock:
+                    self.state.status = "completed"
+                    self.state.progress_percent = 100.0
+                    self.state.faces_detected = profile["faces_detected"]
+                    self.state.cloud_profile_path = "checkpoints/cloud_face_profile.json"
+                    self.state.message = (
+                        f"Cloud ZeroGPU ready! Ranked {profile['total_photos_analyzed']} photos "
+                        f"({profile['faces_detected']} faces) in {profile['duration_seconds']}s."
+                    )
+                    self.state.completed_at = time.time()
+                return
 
             # Fast Zero-Shot Instant FaceID Enrollment Path (~seconds!)
             if engine_mode == "instant_faceid":
