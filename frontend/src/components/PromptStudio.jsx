@@ -16,10 +16,11 @@ import {
 import { aiApi } from "../api/client";
 
 const PROMPT_IDEAS_IDENTITY = [
+  "candid smartphone photo of a young man smiling in a casual cotton shirt at a cafe, natural indoor light, realistic skin pores, shot on iPhone",
+  "authentic candid photo of a young man celebrating Diwali with diyas at home, warm ambient glow, natural skin texture",
+  "portrait of a young man in a tailored navy suit, soft natural studio lighting, photorealistic, 8k",
   "portrait of a young man standing in rainy neon Tokyo at night, wearing a dark leather jacket, cinematic lighting",
-  "portrait of a young man as a sharp executive in a modern glass office overlooking city skyline, 85mm lens",
   "candid photo of a young man sipping espresso at a sunny Parisian sidewalk cafe, warm daylight",
-  "cinematic photo of a young man wearing a detailed astronaut suit on the surface of Mars",
 ];
 
 const PROMPT_IDEAS_SDXL = [
@@ -40,9 +41,9 @@ export default function PromptStudio({ onGenerated }) {
     "portrait of a young man in a tailored navy suit, soft studio lighting, photorealistic, 8k"
   );
   const [negativePrompt, setNegativePrompt] = useState(
-    "bad quality, worst quality, low resolution, deformed face, extra limbs, watermark, signature, blurry"
+    "(lowres, low quality, worst quality:1.2), watermark, deformed, ugly, deformed eyes, blur, blurry, neon contours, neon outlines, sketch, drawing, painting, cartoon, anime, illustration, airbrushed, 3d render, oversaturated, CGI, plastic skin, extreme contrast, harsh lighting"
   );
-  const [selectedStyle, setSelectedStyle] = useState("photorealistic");
+  const [selectedStyle, setSelectedStyle] = useState("candid_smartphone");
   const [loraScale, setLoraScale] = useState(0.85);
   const [ipAdapterScale, setIpAdapterScale] = useState(0.7);
   const [idWeight, setIdWeight] = useState(1.0);
@@ -270,10 +271,11 @@ export default function PromptStudio({ onGenerated }) {
                     value={cloudProvider}
                     onChange={(e) => setCloudProvider(e.target.value)}
                   >
-                    <option value="auto">Auto Failover (PuLID-FLUX → InstantID → PuLID)</option>
-                    <option value="pulid_flux">PuLID-FLUX (Best FLUX.1 Photorealism)</option>
-                    <option value="instantid">InstantID SDXL (Fastest ~24s)</option>
-                    <option value="pulid_sdxl">PuLID SDXL (Multi-Photo 4 Refs)</option>
+                    <option value="auto">Auto Failover (InstantID → PuLID-FLUX → PhotoMaker-V2)</option>
+                    <option value="instantid">InstantID SDXL (Ultra-Realistic ~20s)</option>
+                    <option value="pulid_flux">PuLID-FLUX (FLUX.1-dev Studio Grade)</option>
+                    <option value="photomaker_v2">PhotoMaker-V2 (Multi-Photo Blending)</option>
+                    <option value="pulid_sdxl">PuLID SDXL (Lightning Fast 4-Steps)</option>
                   </select>
                 </div>
 
