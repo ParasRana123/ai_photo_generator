@@ -18,6 +18,19 @@ class StylePreset:
 
 
 PRESETS: Dict[str, StylePreset] = {
+    "candid_smartphone": StylePreset(
+        name="candid_smartphone",
+        display_name="Candid Smartphone Photo",
+        description="Authentic iPhone/Pixel snapshot with natural skin texture and real-life ambient light",
+        prompt_suffix=(
+            ", candid authentic smartphone photograph, shot on iPhone 15 Pro, natural skin pores and micro-textures, "
+            "ambient room lighting, casual framing, photorealistic, realistic skin tone, real life snapshot"
+        ),
+        negative_suffix=(
+            ", studio lights, professional flash, airbrush, photoshop, beauty filter, plastic skin, cartoon, anime, "
+            "illustration, 3d render, CGI, glossy, oversaturated, neon outlines, sketch, drawing, painting, art"
+        )
+    ),
     "photorealistic": StylePreset(
         name="photorealistic",
         display_name="Photorealistic Portrait",
@@ -27,7 +40,8 @@ PRESETS: Dict[str, StylePreset] = {
             "subsurface scattering, 8k uhd, soft studio rim lighting, perfectly focused"
         ),
         negative_suffix=(
-            ", plastic skin, cartoon, anime, illustration, airbrushed, 3d render, oversaturated, CGI"
+            ", plastic skin, cartoon, anime, illustration, airbrushed, 3d render, oversaturated, CGI, "
+            "sketch, drawing, neon outlines, comic book, line art"
         )
     ),
     "cinematic": StylePreset(

@@ -13,7 +13,9 @@ class PromptEnhancer:
 
     DEFAULT_NEGATIVE_BASE = (
         "blurry, bad quality, low resolution, distorted face, deformed eyes, extra limbs, ugly, "
-        "poorly drawn hands, bad anatomy, missing fingers, cropped head, watermark, signature"
+        "poorly drawn hands, bad anatomy, missing fingers, cropped head, watermark, signature, "
+        "sketch, drawing, painting, cartoon, anime, illustration, airbrushed, 3d render, oversaturated, "
+        "CGI, plastic skin, extreme contrast, harsh lighting, neon contours, comic book, line art"
     )
 
     def __init__(
@@ -58,8 +60,15 @@ class PromptEnhancer:
         base_neg = negative_prompt.strip() if negative_prompt and negative_prompt.strip() else self.DEFAULT_NEGATIVE_BASE
         final_neg = base_neg
 
-        # 3. Apply style preset
-        preset = get_style_preset(style_preset_name)
+        # 3. Apply style preset (avoid conflicting studio tags on candid/smartphone/no-studio prompts)
+        effective_style = style_preset_name
+        lower_prompt = prompt.lower()
+        if effective_style and effective_style.lower().strip() == "photorealistic":
+            candid_cues = ("candid", "smartphone", "iphone", "no studio", "casual framing")
+            if any(cue in lower_prompt for cue in candid_cues):
+                effective_style = "candid_smartphone"
+
+        preset = get_style_preset(effective_style)
         if preset is not None:
             final_prompt = f"{final_prompt.rstrip(',')}{preset.prompt_suffix}"
             final_neg = f"{final_neg.rstrip(',')}{preset.negative_suffix}"
