@@ -96,27 +96,33 @@ class CloudZeroGPUClient:
         from gradio_client import Client, handle_file
 
         client = Client(self.PROVIDER_SPACES["instantid"], token=self.hf_token, verbose=False)
+        # Disable LCM and calibrate CFG/steps for full SDXL photorealism (prevents neon/sketch frying)
+        cfg = float(min(max(guidance_scale, 3.5), 7.0)) if guidance_scale >= 2.0 else 5.0
+        actual_steps = int(min(max(steps, 20), 40)) if steps >= 10 else 25
+        identitynet_ratio = float(min(max(id_weight, 0.35), 1.0)) * 0.8
+        adapter_ratio = 0.65
+
         res = client.predict(
             handle_file(photos[0]),
             None,
             prompt,
             negative_prompt,
             "(No style)",
-            int(min(max(steps, 6), 30)),
-            float(min(max(id_weight, 0.2), 1.5)),
-            0.8,
-            0.4,
-            0.4,
-            ["depth"],
-            float(min(max(guidance_scale, 1.0), 10.0)),
+            actual_steps,
+            identitynet_ratio,
+            adapter_ratio,
+            0.0,
+            0.0,
+            [],  # Empty controlnet selection avoids projecting depth contour masks onto skin
+            cfg,
             int(seed),
-            "EulerDiscreteScheduler",
-            True,  # enable_lcm
-            True,  # enhance_face_region
+            "DPMSolverMultistepScheduler-Karras",
+            False,  # enable_lcm=False eliminates CFG/LCM saturation blowout
+            True,   # enhance_face_region
             api_name="/generate_image",
         )
         img = self._extract_image_from_output(res[0])
-        return img, {"cloud_space": "InstantX/InstantID", "cloud_model": "SDXL + InstantID (LCM)"}
+        return img, {"cloud_space": "InstantX/InstantID", "cloud_model": "SDXL + InstantID (Karras)"}
 
     def _run_pulid_sdxl(
         self,
@@ -137,17 +143,19 @@ class CloudZeroGPUClient:
         p2 = handle_file(photos[2]) if len(photos) > 2 else None
         p3 = handle_file(photos[3]) if len(photos) > 3 else None
 
+        # SDXL-Lightning runs cleanly at 4-8 steps (over-stepping degrades details)
+        lightning_steps = 4 if steps > 12 else int(min(max(steps, 4), 8))
         res = client.predict(
             p0, p1, p2, p3,
             prompt,
             negative_prompt,
             1.2,
-            int(min(max(steps, 4), 12)),
+            lightning_steps,
             int(seed),
             1,
             int(min(max(height, 512), 1024)),
             int(min(max(width, 512), 1024)),
-            float(min(max(id_weight, 0.2), 1.2)),
+            float(min(max(id_weight, 0.35), 1.0)) * 0.8,
             "fidelity",
             False,
             api_name="/run",
