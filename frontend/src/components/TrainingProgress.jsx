@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Play, Zap, Loader2, ArrowRight, Activity } from "lucide-react";
+import { Cpu, Play, Zap, Cloud, Loader2, ArrowRight, Activity } from "lucide-react";
 import { aiApi } from "../api/client";
 
 export default function TrainingProgress({ photoCount = 0, onTrainingComplete }) {
-  const [engineMode, setEngineMode] = useState("instant_faceid"); // 'instant_faceid' | 'sdxl_lora'
+  const [engineMode, setEngineMode] = useState("cloud_zerogpu"); // 'cloud_zerogpu' | 'instant_faceid' | 'sdxl_lora'
   const [triggerWord, setTriggerWord] = useState("sks person");
   const [steps, setSteps] = useState(15);
   const [rank, setRank] = useState(16);
@@ -11,15 +11,16 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
   const [health, setHealth] = useState(null);
   const [job, setJob] = useState({
     status: "idle",
-    engine_mode: "instant_faceid",
+    engine_mode: "cloud_zerogpu",
     progress_percent: 0,
     current_step: 0,
     total_steps: 0,
     current_loss: 0,
     faces_detected: 0,
-    message: "Ready for Instant FaceID enrollment (~2-5s)",
+    message: "Ready to rank photos for Free Cloud ZeroGPU (~1-3s)",
     lora_path: null,
     face_id_path: null,
+    cloud_profile_path: null,
   });
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
@@ -41,7 +42,9 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
       .getHealth()
       .then((h) => {
         setHealth(h);
-        if (engineMode === "instant_faceid" && h.insightface_available) {
+        if (engineMode === "cloud_zerogpu" && h.cloud_zerogpu_available) {
+          setDryRun(false);
+        } else if (engineMode === "instant_faceid" && h.insightface_available) {
           setDryRun(false);
         } else if (typeof h.mock_mode_default === "boolean") {
           setDryRun(h.mock_mode_default);
@@ -52,7 +55,9 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
 
   const handleModeChange = (mode) => {
     setEngineMode(mode);
-    if (mode === "instant_faceid") {
+    if (mode === "cloud_zerogpu") {
+      setDryRun(false);
+    } else if (mode === "instant_faceid") {
       setDryRun(health?.insightface_available ? false : true);
     } else {
       setDryRun(!health?.device?.cuda_available);
@@ -97,11 +102,11 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
       <div className="card-header">
         <div>
           <h2 className="card-title">
-            <Cpu size={20} color="#a78bfa" />
+            <Cloud size={20} color="#a78bfa" />
             2. Personalize AI Identity
           </h2>
           <p className="card-subtitle">
-            Choose Instant FaceID (~seconds on CPU/GPU) or full SDXL LoRA training.
+            Use Free Cloud ZeroGPU (recommended), Local Instant FaceID, or SDXL LoRA.
           </p>
         </div>
 
@@ -118,22 +123,36 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 8,
             marginBottom: 16,
           }}
         >
+          <button
+            type="button"
+            className={`style-card ${engineMode === "cloud_zerogpu" ? "selected" : ""}`}
+            onClick={() => handleModeChange("cloud_zerogpu")}
+            disabled={isRunning}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+              <Cloud size={14} color="#34d399" /> Cloud ZeroGPU
+            </div>
+            <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              Free fal.ai Alt • ~2s Prep
+            </div>
+          </button>
+
           <button
             type="button"
             className={`style-card ${engineMode === "instant_faceid" ? "selected" : ""}`}
             onClick={() => handleModeChange("instant_faceid")}
             disabled={isRunning}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
-              <Zap size={15} color="#a78bfa" /> Instant FaceID
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+              <Zap size={14} color="#a78bfa" /> Local FaceID
             </div>
-            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
-              ArcFace Embedding • ~2–5s on CPU/GPU
+            <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              ArcFace Embed • ~5s
             </div>
           </button>
 
@@ -143,11 +162,11 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
             onClick={() => handleModeChange("sdxl_lora")}
             disabled={isRunning}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
-              <Cpu size={15} color="#60a5fa" /> SDXL LoRA
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+              <Cpu size={14} color="#60a5fa" /> SDXL LoRA
             </div>
-            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
-              Deep Weight Fine-Tuning • Needs GPU
+            <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              Needs CUDA GPU
             </div>
           </button>
         </div>
@@ -195,6 +214,21 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
               </div>
             </div>
           </>
+        ) : engineMode === "cloud_zerogpu" ? (
+          <div
+            style={{
+              background: "rgba(16, 185, 129, 0.08)",
+              border: "1px solid rgba(16, 185, 129, 0.28)",
+              borderRadius: "var(--radius-sm)",
+              padding: "10px 12px",
+              fontSize: "0.82rem",
+              color: "#a7f3d0",
+              marginBottom: 14,
+            }}
+          >
+            Scores all uploaded photos in ~2 seconds, picks your sharpest centered faces, and saves{" "}
+            <code>cloud_face_profile.json</code> for free <strong>PuLID-FLUX / InstantID</strong> cloud GPU generation!
+          </div>
         ) : (
           <div
             style={{
@@ -208,7 +242,7 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
             }}
           >
             Extracts and averages 512-dim InsightFace embeddings from your uploaded photos into{" "}
-            <code>person_face_id.safetensors</code> — zero backpropagation required.
+            <code>person_face_id.safetensors</code>.
           </div>
         )}
 
@@ -229,7 +263,7 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
             onChange={(e) => setDryRun(e.target.checked)}
             disabled={isRunning}
           />
-          Simulation / Dry-Run Mode (Mock embeddings without running InsightFace/SDXL)
+          Simulation / Dry-Run Mode (Skip real face detection)
         </label>
 
         {/* Live Progress Indicator Panel */}
@@ -281,10 +315,10 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
               <span>
                 Progress: {job.current_step}/{job.total_steps}
               </span>
-              {job.engine_mode === "instant_faceid" ? (
-                <span>Faces Enrolled: {job.faces_detected}</span>
-              ) : (
+              {job.engine_mode === "sdxl_lora" ? (
                 <span>Loss: {job.current_loss}</span>
+              ) : (
+                <span>Faces Detected: {job.faces_detected}</span>
               )}
             </div>
           )}
@@ -301,10 +335,15 @@ export default function TrainingProgress({ photoCount = 0, onTrainingComplete })
               <>
                 <Loader2 size={16} className="spin" /> Processing Identity...
               </>
+            ) : engineMode === "cloud_zerogpu" ? (
+              <>
+                <Cloud size={16} />
+                {photoCount === 0 ? "Prepare Sample Photos (~2s)" : "Prepare Cloud Profile (~2s)"}
+              </>
             ) : engineMode === "instant_faceid" ? (
               <>
                 <Zap size={16} />
-                {photoCount === 0 ? "Enroll Sample Photos (~2s)" : "Enroll FaceID (~2-5s)"}
+                {photoCount === 0 ? "Enroll Sample Photos (~2s)" : "Enroll FaceID (~5s)"}
               </>
             ) : (
               <>

@@ -9,15 +9,17 @@ import {
   AlertTriangle,
   Cpu,
   Zap,
+  Cloud,
   CheckCircle2,
+  KeyRound,
 } from "lucide-react";
 import { aiApi } from "../api/client";
 
-const PROMPT_IDEAS_FACEID = [
-  "portrait of a man standing in rainy neon Tokyo at night, wearing a dark leather jacket",
-  "portrait of a man as a sharp executive in a glass office overlooking city skyline",
-  "candid photo of a man sipping espresso at a sunny Parisian sidewalk cafe",
-  "cinematic photo of a man wearing a NASA astronaut suit on the surface of Mars",
+const PROMPT_IDEAS_IDENTITY = [
+  "portrait of a young man standing in rainy neon Tokyo at night, wearing a dark leather jacket, cinematic lighting",
+  "portrait of a young man as a sharp executive in a modern glass office overlooking city skyline, 85mm lens",
+  "candid photo of a young man sipping espresso at a sunny Parisian sidewalk cafe, warm daylight",
+  "cinematic photo of a young man wearing a detailed astronaut suit on the surface of Mars",
 ];
 
 const PROMPT_IDEAS_SDXL = [
@@ -30,22 +32,25 @@ const PROMPT_IDEAS_SDXL = [
 export default function PromptStudio({ onGenerated }) {
   const [styles, setStyles] = useState([]);
   const [health, setHealth] = useState(null);
-  const [engineMode, setEngineMode] = useState("instant_faceid"); // 'instant_faceid' | 'sdxl_lora'
-  const [baseModel, setBaseModel] = useState("dreamlike-art/dreamlike-diffusion-1.0");
+  const [engineMode, setEngineMode] = useState("cloud_zerogpu"); // 'cloud_zerogpu' | 'instant_faceid' | 'sdxl_lora'
+  const [cloudProvider, setCloudProvider] = useState("auto");
+  const [hfToken, setHfToken] = useState(() => localStorage.getItem("hf_free_token") || "");
+  const [baseModel, setBaseModel] = useState("yanze/PuLID-FLUX");
   const [prompt, setPrompt] = useState(
-    "portrait of a man in a tailored navy suit, studio lighting"
+    "portrait of a young man in a tailored navy suit, soft studio lighting, photorealistic, 8k"
   );
   const [negativePrompt, setNegativePrompt] = useState(
-    "monochrome, lowres, bad anatomy, worst quality, low quality, blurry, distorted face"
+    "bad quality, worst quality, low resolution, deformed face, extra limbs, watermark, signature, blurry"
   );
   const [selectedStyle, setSelectedStyle] = useState("photorealistic");
   const [loraScale, setLoraScale] = useState(0.85);
   const [ipAdapterScale, setIpAdapterScale] = useState(0.7);
-  const [guidanceScale, setGuidanceScale] = useState(1.5);
-  const [steps, setSteps] = useState(6);
-  const [width, setWidth] = useState(512);
-  const [height, setHeight] = useState(512);
-  const [useLcm, setUseLcm] = useState(true);
+  const [idWeight, setIdWeight] = useState(1.0);
+  const [guidanceScale, setGuidanceScale] = useState(4.0);
+  const [steps, setSteps] = useState(20);
+  const [width, setWidth] = useState(896);
+  const [height, setHeight] = useState(1152);
+  const [useLcm, setUseLcm] = useState(false);
   const [seed, setSeed] = useState("");
   const [dryRun, setDryRun] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -62,7 +67,7 @@ export default function PromptStudio({ onGenerated }) {
       .getHealth()
       .then((h) => {
         setHealth(h);
-        if (engineMode === "instant_faceid") {
+        if (engineMode === "cloud_zerogpu") {
           setDryRun(false);
         } else if (typeof h.mock_mode_default === "boolean") {
           setDryRun(h.mock_mode_default);
@@ -73,7 +78,16 @@ export default function PromptStudio({ onGenerated }) {
 
   const handleEngineModeChange = (mode) => {
     setEngineMode(mode);
-    if (mode === "instant_faceid") {
+    setError("");
+    if (mode === "cloud_zerogpu") {
+      setBaseModel("yanze/PuLID-FLUX");
+      setWidth(896);
+      setHeight(1152);
+      setSteps(20);
+      setGuidanceScale(4.0);
+      setUseLcm(false);
+      setDryRun(false);
+    } else if (mode === "instant_faceid") {
       setBaseModel("dreamlike-art/dreamlike-diffusion-1.0");
       setWidth(512);
       setHeight(512);
@@ -92,6 +106,15 @@ export default function PromptStudio({ onGenerated }) {
     }
   };
 
+  const handleTokenChange = (val) => {
+    setHfToken(val);
+    if (val.trim()) {
+      localStorage.setItem("hf_free_token", val.trim());
+    } else {
+      localStorage.removeItem("hf_free_token");
+    }
+  };
+
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
@@ -104,11 +127,14 @@ export default function PromptStudio({ onGenerated }) {
         negative_prompt: negativePrompt,
         engine_mode: engineMode,
         base_model: baseModel,
+        cloud_provider: cloudProvider,
+        id_weight: Number(idWeight),
+        hf_token: hfToken.trim() || null,
         style_preset: selectedStyle,
         lora_scale: Number(loraScale),
         ip_adapter_scale: Number(ipAdapterScale),
         use_lcm: useLcm,
-        sampler: useLcm ? "lcm" : "dpm++_2m_karras",
+        sampler: useLcm ? "lcm" : "euler",
         guidance_scale: Number(guidanceScale),
         steps: Number(steps),
         width: Number(width),
@@ -129,8 +155,8 @@ export default function PromptStudio({ onGenerated }) {
 
   const latestImage = latestResult?.images?.[0];
   const hasCuda = health?.device?.cuda_available;
-  const faceIdReady = health?.face_id_ready;
-  const ideas = engineMode === "instant_faceid" ? PROMPT_IDEAS_FACEID : PROMPT_IDEAS_SDXL;
+  const cloudProfileReady = health?.cloud_profile_ready;
+  const ideas = engineMode === "sdxl_lora" ? PROMPT_IDEAS_SDXL : PROMPT_IDEAS_IDENTITY;
 
   return (
     <div className="grid-2">
@@ -143,40 +169,59 @@ export default function PromptStudio({ onGenerated }) {
               Prompt Studio
             </h2>
             <p className="card-subtitle">
-              Synthesize personalized photos using Instant FaceID + LCM or SDXL LoRA.
+              Generate real personalized photos via Free Cloud ZeroGPU (fal.ai alternative) or local models.
             </p>
           </div>
 
-          {health && (
-            <span className={`badge ${hasCuda ? "badge-success" : "badge-warning"}`}>
-              <Cpu size={13} />
-              {hasCuda ? `GPU: ${health.device.device_name}` : "CPU Mode"}
+          {engineMode === "cloud_zerogpu" ? (
+            <span className="badge badge-success">
+              <Cloud size={13} /> Free Cloud GPU
             </span>
+          ) : (
+            health && (
+              <span className={`badge ${hasCuda ? "badge-success" : "badge-warning"}`}>
+                <Cpu size={13} />
+                {hasCuda ? `GPU: ${health.device.device_name}` : "Local CPU"}
+              </span>
+            )
           )}
         </div>
 
         {error && <div className="alert-error">{error}</div>}
 
         <form onSubmit={handleGenerate}>
-          {/* Engine Mode Selector */}
+          {/* 3-Mode Engine Selector */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 10,
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 8,
               marginBottom: 16,
             }}
           >
             <button
               type="button"
+              className={`style-card ${engineMode === "cloud_zerogpu" ? "selected" : ""}`}
+              onClick={() => handleEngineModeChange("cloud_zerogpu")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+                <Cloud size={14} color="#34d399" /> Cloud ZeroGPU
+              </div>
+              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                PuLID-FLUX / InstantID (~25s)
+              </div>
+            </button>
+
+            <button
+              type="button"
               className={`style-card ${engineMode === "instant_faceid" ? "selected" : ""}`}
               onClick={() => handleEngineModeChange("instant_faceid")}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
-                <Zap size={15} color="#a78bfa" /> Instant FaceID + LCM
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+                <Zap size={14} color="#a78bfa" /> Local FaceID
               </div>
-              <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                6-Step Fast Open-Source • CPU &amp; GPU
+              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                LCM 6-Step Local
               </div>
             </button>
 
@@ -185,65 +230,96 @@ export default function PromptStudio({ onGenerated }) {
               className={`style-card ${engineMode === "sdxl_lora" ? "selected" : ""}`}
               onClick={() => handleEngineModeChange("sdxl_lora")}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.86rem" }}>
-                <Cpu size={15} color="#60a5fa" /> SDXL LoRA
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+                <Cpu size={14} color="#60a5fa" /> SDXL LoRA
               </div>
-              <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                1024x1024 Fine-Tuned • GPU Required
+              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                Fine-Tuned Local GPU
               </div>
             </button>
           </div>
 
-          {engineMode === "instant_faceid" && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "9px 12px",
-                borderRadius: "var(--radius-sm)",
-                background: faceIdReady
-                  ? "rgba(16, 185, 129, 0.1)"
-                  : "rgba(245, 158, 11, 0.1)",
-                border: `1px solid ${
-                  faceIdReady ? "rgba(16, 185, 129, 0.3)" : "rgba(245, 158, 11, 0.3)"
-                }`,
-                fontSize: "0.8rem",
-                marginBottom: 14,
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <CheckCircle2 size={14} color={faceIdReady ? "#34d399" : "#fbbf24"} />
-                {faceIdReady
-                  ? "FaceID Identity Ready (person_face_id.safetensors)"
-                  : "FaceID not enrolled yet — run Enroll FaceID on Tab 1 first!"}
-              </span>
-            </div>
+          {engineMode === "cloud_zerogpu" && (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "9px 12px",
+                  borderRadius: "var(--radius-sm)",
+                  background: "rgba(16, 185, 129, 0.08)",
+                  border: "1px solid rgba(16, 185, 129, 0.28)",
+                  fontSize: "0.8rem",
+                  marginBottom: 14,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#a7f3d0" }}>
+                  <CheckCircle2 size={14} color="#34d399" />
+                  {cloudProfileReady
+                    ? "Cloud Face Profile Ready (using your sharpest uploaded portrait)"
+                    : "Auto-selecting reference photos from your uploaded photos"}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Cloud ZeroGPU Provider</label>
+                  <select
+                    className="select"
+                    value={cloudProvider}
+                    onChange={(e) => setCloudProvider(e.target.value)}
+                  >
+                    <option value="auto">Auto Failover (PuLID-FLUX → InstantID → PuLID)</option>
+                    <option value="pulid_flux">PuLID-FLUX (Best FLUX.1 Photorealism)</option>
+                    <option value="instantid">InstantID SDXL (Fastest ~24s)</option>
+                    <option value="pulid_sdxl">PuLID SDXL (Multi-Photo 4 Refs)</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <KeyRound size={13} /> Free HF Token (Optional)
+                    </span>
+                  </label>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="hf_... (4x ZeroGPU quota)"
+                    value={hfToken}
+                    onChange={(e) => handleTokenChange(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
           )}
 
-          <div className="form-group">
-            <label className="form-label">Base Diffusion Model</label>
-            <select
-              className="select"
-              value={baseModel}
-              onChange={(e) => setBaseModel(e.target.value)}
-            >
-              {engineMode === "instant_faceid" ? (
-                <>
-                  <option value="dreamlike-art/dreamlike-diffusion-1.0">
-                    Dreamlike Diffusion 1.0 (Cached Local Model — 512x512)
+          {engineMode !== "cloud_zerogpu" && (
+            <div className="form-group">
+              <label className="form-label">Local Base Diffusion Model</label>
+              <select
+                className="select"
+                value={baseModel}
+                onChange={(e) => setBaseModel(e.target.value)}
+              >
+                {engineMode === "instant_faceid" ? (
+                  <>
+                    <option value="dreamlike-art/dreamlike-diffusion-1.0">
+                      Dreamlike Diffusion 1.0 (Cached Local Model — 512x512)
+                    </option>
+                    <option value="SG161222/Realistic_Vision_V5.1_noVAE">
+                      Realistic Vision V5.1 (SD 1.5)
+                    </option>
+                  </>
+                ) : (
+                  <option value="stabilityai/stable-diffusion-xl-base-1.0">
+                    SDXL 1.0 + Trained Face LoRA (1024x1024)
                   </option>
-                  <option value="SG161222/Realistic_Vision_V5.1_noVAE">
-                    Realistic Vision V5.1 (Photorealistic SD 1.5 — Downloads ~2GB)
-                  </option>
-                </>
-              ) : (
-                <option value="stabilityai/stable-diffusion-xl-base-1.0">
-                  SDXL 1.0 + Trained Face LoRA (1024x1024)
-                </option>
-              )}
-            </select>
-          </div>
+                )}
+              </select>
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">
@@ -258,7 +334,7 @@ export default function PromptStudio({ onGenerated }) {
               className="textarea"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe the setting, clothing, lighting, and expression..."
+              placeholder="Describe the setting, outfit, lighting, and mood..."
               required
             />
           </div>
@@ -329,12 +405,26 @@ export default function PromptStudio({ onGenerated }) {
                 color: "var(--text-secondary)",
               }}
             >
-              <Sliders size={14} /> Inference Parameters ({width}x{height} •{" "}
-              {useLcm ? "LCM Fast" : "Standard"})
+              <Sliders size={14} /> Inference Parameters ({width}x{height})
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              {engineMode === "instant_faceid" ? (
+              {engineMode === "cloud_zerogpu" ? (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    <span>Face Identity Weight</span>
+                    <span style={{ fontFamily: "var(--font-mono)" }}>{idWeight}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={1.4}
+                    step={0.05}
+                    value={idWeight}
+                    onChange={(e) => setIdWeight(parseFloat(e.target.value))}
+                  />
+                </div>
+              ) : engineMode === "instant_faceid" ? (
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">
                     <span>Face Fidelity</span>
@@ -389,7 +479,7 @@ export default function PromptStudio({ onGenerated }) {
                 <input
                   type="range"
                   min={4}
-                  max={50}
+                  max={35}
                   step={1}
                   value={steps}
                   onChange={(e) => setSteps(parseInt(e.target.value, 10))}
@@ -417,7 +507,7 @@ export default function PromptStudio({ onGenerated }) {
               gap: 10,
               fontSize: "0.86rem",
               color: "var(--text-secondary)",
-              marginBottom: 10,
+              marginBottom: 14,
               cursor: "pointer",
             }}
           >
@@ -426,10 +516,10 @@ export default function PromptStudio({ onGenerated }) {
               checked={dryRun}
               onChange={(e) => setDryRun(e.target.checked)}
             />
-            Dry-Run Preview Mode (Instant wireframe card without running Diffusers)
+            Dry-Run Preview Mode (Instant mock card for offline testing)
           </label>
 
-          {dryRun ? (
+          {dryRun && (
             <div
               style={{
                 background: "rgba(245, 158, 11, 0.1)",
@@ -445,25 +535,7 @@ export default function PromptStudio({ onGenerated }) {
               }}
             >
               <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-              <span>
-                Dry-Run Mode is checked, so Generate produces a mock card. Uncheck for real AI generation!
-              </span>
-            </div>
-          ) : !hasCuda && (
-            <div
-              style={{
-                background: "rgba(99, 102, 241, 0.12)",
-                border: "1px solid rgba(99, 102, 241, 0.35)",
-                color: "#c7d2fe",
-                padding: "10px 12px",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "0.8rem",
-                marginBottom: 14,
-              }}
-            >
-              {engineMode === "instant_faceid"
-                ? "Running Real IP-Adapter-FaceID + LCM on CPU (first load downloads ~360MB adapters, takes ~20–45s per image)."
-                : "Running SDXL on CPU (takes 15–25+ mins per image). Switch to Instant FaceID + LCM for fast CPU results!"}
+              <span>Dry-Run Mode is active (returns wireframe mock). Uncheck for real cloud AI generation!</span>
             </div>
           )}
 
@@ -476,7 +548,9 @@ export default function PromptStudio({ onGenerated }) {
             {generating ? (
               <>
                 <Loader2 size={18} className="spin" />
-                {dryRun ? "Generating Preview..." : "Synthesizing Real AI Photo..."}
+                {engineMode === "cloud_zerogpu" && !dryRun
+                  ? "Generating on Free Cloud GPU (~20-40s)..."
+                  : "Generating AI Photo..."}
               </>
             ) : (
               <>
@@ -499,7 +573,11 @@ export default function PromptStudio({ onGenerated }) {
           </div>
           {latestResult && (
             <span className={`badge ${latestResult.is_mock ? "badge-warning" : "badge-success"}`}>
-              {latestResult.is_mock ? "Dry-Run Card" : "Real AI Render"}
+              {latestResult.is_mock
+                ? "Dry-Run Card"
+                : latestImage?.cloud_space
+                  ? `Cloud: ${latestImage.cloud_space}`
+                  : "Real AI Render"}
             </span>
           )}
         </div>
@@ -521,11 +599,15 @@ export default function PromptStudio({ onGenerated }) {
             <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 24 }}>
               <Loader2 size={38} className="spin" color="#8b5cf6" />
               <p style={{ marginTop: 12, fontWeight: 500 }}>
-                {dryRun ? "Rendering Preview Card..." : "Synthesizing Personalized AI Image..."}
+                {dryRun
+                  ? "Rendering Preview Card..."
+                  : engineMode === "cloud_zerogpu"
+                    ? "Synthesizing on Free HuggingFace ZeroGPU..."
+                    : "Synthesizing AI Image..."}
               </p>
-              {!dryRun && !hasCuda && (
+              {!dryRun && engineMode === "cloud_zerogpu" && (
                 <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 6 }}>
-                  {steps}-step LCM diffusion running on CPU — check terminal for download/step progress.
+                  Zero load on your laptop — usually completes in 20–40 seconds!
                 </p>
               )}
             </div>
