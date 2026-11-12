@@ -9,6 +9,7 @@ from .style_presets import StylePreset, PRESETS, get_style_preset, list_availabl
 from .prompt_enhancer import PromptEnhancer
 from .metadata_writer import PNGMetadataWriter
 from .generator import SDXLInferenceEngine, GenerationResult
+from .cloud_client import CloudZeroGPUClient
 
 __all__ = [
     "SDXLPipelineLoader",
@@ -20,5 +21,6 @@ __all__ = [
     "PromptEnhancer",
     "PNGMetadataWriter",
     "SDXLInferenceEngine",
-    "GenerationResult"
+    "GenerationResult",
+    "CloudZeroGPUClient"
 ]
