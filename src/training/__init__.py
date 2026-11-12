@@ -11,6 +11,7 @@ from .lora_network import LoRANetworkManager
 from .trainer import SDXLLoRATrainer
 from .saver import LoRASaver
 from .face_encoder import FaceIdentityEncoder
+from .reference_selector import ReferencePhotoSelector
 
 __all__ = [
     "SDXLDataset",
@@ -21,5 +22,6 @@ __all__ = [
     "LoRANetworkManager",
     "SDXLLoRATrainer",
     "LoRASaver",
-    "FaceIdentityEncoder"
+    "FaceIdentityEncoder",
+    "ReferencePhotoSelector"
 ]
