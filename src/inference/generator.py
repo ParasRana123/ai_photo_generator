@@ -18,6 +18,7 @@ from src.training.face_encoder import FaceIdentityEncoder
 from src.training.reference_selector import ReferencePhotoSelector
 from .pipeline_loader import SDXLPipelineLoader
 from .cloud_client import CloudZeroGPUClient
+from .api_providers import DirectAPIProvider
 from .prompt_enhancer import PromptEnhancer
 from .metadata_writer import PNGMetadataWriter
 
@@ -54,7 +55,7 @@ class SDXLInferenceEngine:
 
         auto_inject = (
             self.config.auto_inject_trigger
-            if self.config.engine_mode not in ("instant_faceid", "cloud_zerogpu")
+            if self.config.engine_mode not in ("instant_faceid", "cloud_zerogpu", "google_imagen3", "fal_ai", "openai_dalle3")
             else False
         )
         self.enhancer = PromptEnhancer(
@@ -62,10 +63,14 @@ class SDXLInferenceEngine:
             auto_inject_trigger=auto_inject
         )
 
-        if self.config.engine_mode == "cloud_zerogpu":
+        if self.config.engine_mode in ("cloud_zerogpu", "google_imagen3", "fal_ai", "openai_dalle3"):
             self.loader = None
             self.pipeline = None
-            self.cloud_client = CloudZeroGPUClient(hf_token=self.config.hf_token)
+            self.cloud_client = (
+                CloudZeroGPUClient(hf_token=self.config.hf_token)
+                if self.config.engine_mode == "cloud_zerogpu"
+                else None
+            )
         else:
             self.cloud_client = None
             self.loader = SDXLPipelineLoader(self.config)
@@ -174,6 +179,96 @@ class SDXLInferenceEngine:
                 "id_weight": self.config.id_weight,
                 "seed": current_seed,
                 "reference_photo": Path(ref_photos[0]).name,
+                "generation_time_seconds": round(duration, 3)
+            }
+        elif self.config.engine_mode == "google_imagen3":
+            images = []
+            api_meta = {}
+            if self.mock:
+                images.append(Image.new("RGB", (1024, 1024), color=(30, 40, 60)))
+                api_meta = {"provider_name": "Google Gemini (Imagen 3 Mock)"}
+            else:
+                for _ in range(num_images):
+                    img, meta_data = DirectAPIProvider.generate_gemini_imagen(
+                        prompt=pos_prompt,
+                        api_key=self.config.api_key,
+                        num_images=1
+                    )
+                    images.append(img)
+                    api_meta.update(meta_data)
+            duration = time.time() - start_time
+            meta = {
+                "engine_mode": self.config.engine_mode,
+                "api_provider": "google_imagen3",
+                "base_model": "Google Imagen 3 (Gemini)",
+                "prompt": pos_prompt,
+                "raw_prompt": raw_prompt,
+                "negative_prompt": neg_prompt,
+                "style_preset": selected_style,
+                "width": images[0].size[0],
+                "height": images[0].size[1],
+                "seed": current_seed,
+                "generation_time_seconds": round(duration, 3)
+            }
+        elif self.config.engine_mode == "fal_ai":
+            ref_photos = self._resolve_cloud_reference_photos()
+            images = []
+            api_meta = {}
+            if self.mock:
+                images.append(Image.new("RGB", (1024, 1024), color=(25, 30, 45)))
+                api_meta = {"provider_name": "fal.ai (Mock)"}
+            else:
+                for _ in range(num_images):
+                    img, meta_data = DirectAPIProvider.generate_fal_ai(
+                        prompt=pos_prompt,
+                        reference_photo=ref_photos[0],
+                        api_key=self.config.api_key,
+                        steps=steps,
+                        guidance_scale=cfg_scale
+                    )
+                    images.append(img)
+                    api_meta.update(meta_data)
+            duration = time.time() - start_time
+            meta = {
+                "engine_mode": self.config.engine_mode,
+                "api_provider": "fal_ai",
+                "base_model": "fal.ai FLUX.1-dev PuLID",
+                "prompt": pos_prompt,
+                "raw_prompt": raw_prompt,
+                "negative_prompt": neg_prompt,
+                "style_preset": selected_style,
+                "width": images[0].size[0],
+                "height": images[0].size[1],
+                "reference_photo": Path(ref_photos[0]).name,
+                "seed": current_seed,
+                "generation_time_seconds": round(duration, 3)
+            }
+        elif self.config.engine_mode == "openai_dalle3":
+            images = []
+            api_meta = {}
+            if self.mock:
+                images.append(Image.new("RGB", (1024, 1024), color=(20, 25, 35)))
+                api_meta = {"provider_name": "OpenAI DALL-E 3 (Mock)"}
+            else:
+                for _ in range(num_images):
+                    img, meta_data = DirectAPIProvider.generate_openai_dalle3(
+                        prompt=pos_prompt,
+                        api_key=self.config.api_key,
+                    )
+                    images.append(img)
+                    api_meta.update(meta_data)
+            duration = time.time() - start_time
+            meta = {
+                "engine_mode": self.config.engine_mode,
+                "api_provider": "openai_dalle3",
+                "base_model": "OpenAI DALL-E 3 (ChatGPT)",
+                "prompt": pos_prompt,
+                "raw_prompt": raw_prompt,
+                "negative_prompt": neg_prompt,
+                "style_preset": selected_style,
+                "width": images[0].size[0],
+                "height": images[0].size[1],
+                "seed": current_seed,
                 "generation_time_seconds": round(duration, 3)
             }
         else:

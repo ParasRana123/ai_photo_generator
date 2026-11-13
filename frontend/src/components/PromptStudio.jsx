@@ -33,7 +33,9 @@ const PROMPT_IDEAS_SDXL = [
 export default function PromptStudio({ onGenerated }) {
   const [styles, setStyles] = useState([]);
   const [health, setHealth] = useState(null);
-  const [engineMode, setEngineMode] = useState("cloud_zerogpu"); // 'cloud_zerogpu' | 'instant_faceid' | 'sdxl_lora'
+  const [engineMode, setEngineMode] = useState("google_imagen3"); // 'google_imagen3' | 'fal_ai' | 'cloud_zerogpu' | 'instant_faceid' | 'sdxl_lora'
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem("gemini_api_key") || "");
+  const [falApiKey, setFalApiKey] = useState(() => localStorage.getItem("fal_api_key") || "");
   const [cloudProvider, setCloudProvider] = useState("auto");
   const [hfToken, setHfToken] = useState(() => localStorage.getItem("hf_free_token") || "");
   const [baseModel, setBaseModel] = useState("yanze/PuLID-FLUX");
@@ -80,7 +82,23 @@ export default function PromptStudio({ onGenerated }) {
   const handleEngineModeChange = (mode) => {
     setEngineMode(mode);
     setError("");
-    if (mode === "cloud_zerogpu") {
+    if (mode === "google_imagen3") {
+      setBaseModel("imagen-3.0-generate-002");
+      setWidth(1024);
+      setHeight(1024);
+      setSteps(30);
+      setGuidanceScale(4.0);
+      setUseLcm(false);
+      setDryRun(false);
+    } else if (mode === "fal_ai") {
+      setBaseModel("fal-ai/flux-pulid");
+      setWidth(1024);
+      setHeight(1024);
+      setSteps(28);
+      setGuidanceScale(4.0);
+      setUseLcm(false);
+      setDryRun(false);
+    } else if (mode === "cloud_zerogpu") {
       setBaseModel("yanze/PuLID-FLUX");
       setWidth(896);
       setHeight(1152);
@@ -123,6 +141,13 @@ export default function PromptStudio({ onGenerated }) {
     setGenerating(true);
 
     try {
+      const activeApiKey =
+        engineMode === "google_imagen3"
+          ? geminiApiKey.trim() || null
+          : engineMode === "fal_ai"
+          ? falApiKey.trim() || null
+          : null;
+
       const data = await aiApi.generate({
         prompt,
         negative_prompt: negativePrompt,
@@ -131,6 +156,7 @@ export default function PromptStudio({ onGenerated }) {
         cloud_provider: cloudProvider,
         id_weight: Number(idWeight),
         hf_token: hfToken.trim() || null,
+        api_key: activeApiKey,
         style_preset: selectedStyle,
         lora_scale: Number(loraScale),
         ip_adapter_scale: Number(ipAdapterScale),
@@ -191,7 +217,7 @@ export default function PromptStudio({ onGenerated }) {
         {error && <div className="alert-error">{error}</div>}
 
         <form onSubmit={handleGenerate}>
-          {/* 3-Mode Engine Selector */}
+          {/* Multi-Engine Selector */}
           <div
             style={{
               display: "grid",
@@ -202,43 +228,121 @@ export default function PromptStudio({ onGenerated }) {
           >
             <button
               type="button"
+              className={`style-card ${engineMode === "google_imagen3" ? "selected" : ""}`}
+              onClick={() => handleEngineModeChange("google_imagen3")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+                <Sparkles size={14} color="#38bdf8" /> Google Gemini
+              </div>
+              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                Imagen 3 (100% Real SOTA)
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`style-card ${engineMode === "fal_ai" ? "selected" : ""}`}
+              onClick={() => handleEngineModeChange("fal_ai")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
+                <Zap size={14} color="#f59e0b" /> fal.ai FLUX
+              </div>
+              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
+                FLUX.1 PuLID (2s H100)
+              </div>
+            </button>
+
+            <button
+              type="button"
               className={`style-card ${engineMode === "cloud_zerogpu" ? "selected" : ""}`}
               onClick={() => handleEngineModeChange("cloud_zerogpu")}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
-                <Cloud size={14} color="#34d399" /> Cloud ZeroGPU
+                <Cloud size={14} color="#34d399" /> Free Cloud GPU
               </div>
               <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                PuLID-FLUX / InstantID (~25s)
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className={`style-card ${engineMode === "instant_faceid" ? "selected" : ""}`}
-              onClick={() => handleEngineModeChange("instant_faceid")}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
-                <Zap size={14} color="#a78bfa" /> Local FaceID
-              </div>
-              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                LCM 6-Step Local
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className={`style-card ${engineMode === "sdxl_lora" ? "selected" : ""}`}
-              onClick={() => handleEngineModeChange("sdxl_lora")}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: "0.82rem" }}>
-                <Cpu size={14} color="#60a5fa" /> SDXL LoRA
-              </div>
-              <div style={{ fontSize: "0.71rem", color: "var(--text-secondary)", marginTop: 4 }}>
-                Fine-Tuned Local GPU
+                InstantID / ZeroGPU ($0)
               </div>
             </button>
           </div>
+
+          {engineMode === "google_imagen3" && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "var(--radius-sm)",
+                background: "rgba(56, 189, 248, 0.08)",
+                border: "1px solid rgba(56, 189, 248, 0.28)",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", color: "#7dd3fc", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Sparkles size={14} /> Google Gemini / Imagen 3 API (Photorealistic SOTA)
+                </span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: "0.73rem", color: "#38bdf8", textDecoration: "underline" }}
+                >
+                  Get Free Key (Google AI Studio) ↗
+                </a>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="Paste your Gemini API Key (e.g. AIzaSy...)"
+                  value={geminiApiKey}
+                  onChange={(e) => {
+                    setGeminiApiKey(e.target.value);
+                    if (e.target.value.trim()) localStorage.setItem("gemini_api_key", e.target.value.trim());
+                    else localStorage.removeItem("gemini_api_key");
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {engineMode === "fal_ai" && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "var(--radius-sm)",
+                background: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.28)",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: "0.82rem", color: "#fcd34d", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Zap size={14} /> fal.ai FLUX.1 PuLID (2-Second Dedicated H100)
+                </span>
+                <a
+                  href="https://fal.ai/dashboard/keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: "0.73rem", color: "#fbbf24", textDecoration: "underline" }}
+                >
+                  Get Key (fal.ai) ↗
+                </a>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="Paste your fal.ai Key (e.g. 5b98...)"
+                  value={falApiKey}
+                  onChange={(e) => {
+                    setFalApiKey(e.target.value);
+                    if (e.target.value.trim()) localStorage.setItem("fal_api_key", e.target.value.trim());
+                    else localStorage.removeItem("fal_api_key");
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {engineMode === "cloud_zerogpu" && (
             <>

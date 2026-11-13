@@ -63,6 +63,7 @@ class GenerateRequest(BaseModel):
     cloud_profile_path: str = "checkpoints/cloud_face_profile.json"
     id_weight: float = 1.0
     hf_token: Optional[str] = None
+    api_key: Optional[str] = None
     steps: int = 20
     guidance_scale: float = 4.0
     width: int = 896
@@ -174,6 +175,7 @@ def generate_images(req: GenerateRequest) -> Dict[str, Any]:
             cloud_profile_path=req.cloud_profile_path,
             id_weight=req.id_weight,
             hf_token=req.hf_token,
+            api_key=req.api_key,
             num_inference_steps=req.steps,
             guidance_scale=req.guidance_scale,
             width=req.width,

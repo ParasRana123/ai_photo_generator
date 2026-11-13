@@ -141,6 +141,7 @@ router.post("/generate", authenticateToken, async (req, res) => {
             cloud_profile_path: payload.cloud_profile_path || "checkpoints/cloud_face_profile.json",
             id_weight: payload.id_weight !== undefined ? Number(payload.id_weight) : 1.0,
             hf_token: payload.hf_token || null,
+            api_key: payload.api_key || null,
             steps: payload.steps !== undefined ? Number(payload.steps) : 20,
             guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 4.0,
             width: payload.width !== undefined ? Number(payload.width) : 896,

@@ -22,16 +22,17 @@ VALID_SAMPLERS = [
     "lcm"
 ]
 
-VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid", "cloud_zerogpu"]
+VALID_ENGINE_MODES = ["sdxl_lora", "instant_faceid", "cloud_zerogpu", "google_imagen3", "fal_ai", "openai_dalle3"]
 VALID_CLOUD_PROVIDERS = ["auto", "pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"]
 
 
 @dataclass
 class InferenceConfig:
-    """Configuration for running inference with SDXL LoRA, Fast FaceID, or Free Cloud ZeroGPU."""
+    """Configuration for running inference with SDXL LoRA, Fast FaceID, Free Cloud ZeroGPU, or Direct APIs."""
 
     # Engine Mode & Model Weights
-    engine_mode: str = "sdxl_lora"  # "sdxl_lora", "instant_faceid", or "cloud_zerogpu"
+    engine_mode: str = "sdxl_lora"  # "sdxl_lora", "instant_faceid", "cloud_zerogpu", "google_imagen3", "fal_ai", "openai_dalle3"
+    api_key: Optional[str] = None
     base_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
     vae_model: Optional[str] = "madebyollin/sdxl-vae-fp16-fix"
     lora_weights_path: str = "checkpoints/person_sdxl_lora.safetensors"
