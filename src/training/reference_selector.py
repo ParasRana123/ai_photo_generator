@@ -32,31 +32,41 @@ class ReferencePhotoSelector:
         return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
     def score_photo(self, image_path: Union[str, Path]) -> Dict[str, Any]:
-        """Scores an individual photo based on face presence, face prominence, and sharpness."""
+        """
+        Scores an individual photo based on face resolution, face-crop sharpness,
+        and penalizes low-res phone screenshots with black/UI bars.
+        """
         p = Path(image_path)
         img = Image.open(p)
         img = ImageOps.exif_transpose(img).convert("RGB")
         w, h = img.size
 
-        sharpness = self._compute_sharpness(img)
+        img_gray = np.array(img.convert("L"))
         face_rect = self.face_detector.detect_primary_face(img) if self.face_detector else None
 
-        face_area_ratio = 0.0
-        center_bonus = 0.0
+        face_sharpness = 0.0
+        face_width = 0
+        is_screenshot = False
         if face_rect is not None:
             fx, fy, fw, fh = face_rect
-            face_area_ratio = (fw * fh) / max(1, w * h)
-            cx = (fx + fw / 2.0) / max(1, w)
-            cy = (fy + fh / 2.0) / max(1, h)
-            dist = ((cx - 0.5) ** 2 + (cy - 0.45) ** 2) ** 0.5
-            center_bonus = max(0.0, 1.0 - dist * 2.0)
+            face_width = fw
+            face_region = img_gray[fy:fy+fh, fx:fx+fw]
+            if face_region.size > 0:
+                face_sharpness = float(cv2.Laplacian(face_region, cv2.CV_64F).var())
 
-        # Weighted score favoring clear visible centered faces + crisp focus
+            # Detect phone screenshots with top/bottom black borders or UI headers
+            top_dark = float(img_gray[:40, :].mean()) < 35.0
+            bot_dark = float(img_gray[-40:, :].mean()) < 35.0
+            is_screenshot = top_dark and bot_dark
+        else:
+            face_sharpness = self._compute_sharpness(img)
+
+        # High score for sharp, large faces from real cameras; heavily penalize low-res screenshots
         total_score = (
-            (100.0 if face_rect is not None else 0.0)
-            + min(sharpness, 400.0) * 0.25
-            + (face_area_ratio * 200.0)
-            + (center_bonus * 40.0)
+            (150.0 if face_rect is not None else 0.0)
+            + min(face_sharpness, 1000.0) * 0.4
+            + min(face_width, 400.0) * 0.6
+            - (250.0 if is_screenshot else 0.0)
         )
 
         return {
@@ -65,7 +75,8 @@ class ReferencePhotoSelector:
             "width": w,
             "height": h,
             "face_detected": face_rect is not None,
-            "sharpness": round(sharpness, 2),
+            "sharpness": round(face_sharpness, 2),
+            "is_screenshot": is_screenshot,
             "score": round(total_score, 2)
         }
 

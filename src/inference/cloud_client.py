@@ -119,7 +119,7 @@ class CloudZeroGPUClient:
             int(seed),
             "DPMSolverMultistepScheduler-Karras",
             False,  # enable_lcm=False eliminates CFG/LCM saturation blowout
-            True,   # enhance_face_region
+            False,  # enhance_face_region=False prevents GFPGAN/CodeFormer waxy plastic skin smoothing
             api_name="/generate_image",
         )
         img = self._extract_image_from_output(res[0])
