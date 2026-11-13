@@ -9,6 +9,7 @@ const store = require("../models/store");
 const router = express.Router();
 
 const FALLBACK_STYLES = [
+  { name: "candid_smartphone", display_name: "Candid Smartphone Photo", description: "Authentic iPhone/Pixel snapshot with natural skin texture and real-life ambient light" },
   { name: "photorealistic", display_name: "Photorealistic Portrait", description: "Crisp 85mm portrait photography with natural skin texture" },
   { name: "cinematic", display_name: "Cinematic 35mm Film", description: "Hollywood film still with atmospheric lighting" },
   { name: "studio_portrait", display_name: "High-End Studio Headshot", description: "Clean commercial studio portrait with softbox lighting" },
@@ -17,6 +18,28 @@ const FALLBACK_STYLES = [
   { name: "black_and_white", display_name: "Dramatic Monochrome", description: "Fine-art monochrome portrait" },
   { name: "oil_painting", display_name: "Classical Oil Painting", description: "Masterpiece Rembrandt oil portrait" },
 ];
+
+/**
+ * Executes an Axios request to the Python AI engine with automatic retry for transient startup delays.
+ */
+async function callPythonWithRetry(requestFn, retries = 2, delayMs = 1200) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await requestFn();
+    } catch (err) {
+      const isNetworkErr =
+        err.code === "ECONNREFUSED" ||
+        err.code === "ETIMEDOUT" ||
+        err.message?.includes("ECONNREFUSED") ||
+        err.message?.includes("Network Error");
+      if (isNetworkErr && attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 /**
  * GET /api/ai/health
@@ -49,13 +72,15 @@ router.post("/train", authenticateToken, async (req, res) => {
       engine_mode = "cloud_zerogpu",
       dry_run,
     } = req.body || {};
-    const response = await axios.post(`${PYTHON_API_URL}/train`, {
-      trigger_word,
-      steps: Number(steps),
-      rank: Number(rank),
-      engine_mode,
-      dry_run,
-    });
+    const response = await callPythonWithRetry(() =>
+      axios.post(`${PYTHON_API_URL}/train`, {
+        trigger_word,
+        steps: Number(steps),
+        rank: Number(rank),
+        engine_mode,
+        dry_run,
+      })
+    );
     res.json(response.data);
   } catch (err) {
     if (err.response) {
@@ -95,34 +120,39 @@ router.post("/generate", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Prompt is required to generate an image." });
     }
 
-    const response = await axios.post(
-      `${PYTHON_API_URL}/generate`,
-      {
-        prompt: payload.prompt.trim(),
-        negative_prompt: payload.negative_prompt,
-        engine_mode: payload.engine_mode || "cloud_zerogpu",
-        base_model: payload.base_model || "yanze/PuLID-FLUX",
-        style_preset: payload.style_preset || "photorealistic",
-        trigger_word: payload.trigger_word || "sks person",
-        lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
-        ip_adapter_scale:
-          payload.ip_adapter_scale !== undefined ? Number(payload.ip_adapter_scale) : 0.7,
-        use_lcm: Boolean(payload.use_lcm),
-        sampler: payload.sampler || (payload.use_lcm ? "lcm" : "euler"),
-        face_id_path: payload.face_id_path || "checkpoints/person_face_id.safetensors",
-        cloud_provider: payload.cloud_provider || "auto",
-        cloud_profile_path: payload.cloud_profile_path || "checkpoints/cloud_face_profile.json",
-        id_weight: payload.id_weight !== undefined ? Number(payload.id_weight) : 1.0,
-        hf_token: payload.hf_token || null,
-        steps: payload.steps !== undefined ? Number(payload.steps) : 20,
-        guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 4.0,
-        width: payload.width !== undefined ? Number(payload.width) : 896,
-        height: payload.height !== undefined ? Number(payload.height) : 1152,
-        seed: payload.seed !== undefined && payload.seed !== "" ? Number(payload.seed) : null,
-        num_images: payload.num_images ? Number(payload.num_images) : 1,
-        dry_run: payload.dry_run,
-      },
-      { timeout: 180000 }
+    const response = await callPythonWithRetry(
+      () =>
+        axios.post(
+          `${PYTHON_API_URL}/generate`,
+          {
+            prompt: payload.prompt.trim(),
+            negative_prompt: payload.negative_prompt,
+            engine_mode: payload.engine_mode || "cloud_zerogpu",
+            base_model: payload.base_model || "yanze/PuLID-FLUX",
+            style_preset: payload.style_preset || "photorealistic",
+            trigger_word: payload.trigger_word || "sks person",
+            lora_scale: payload.lora_scale !== undefined ? Number(payload.lora_scale) : 0.85,
+            ip_adapter_scale:
+              payload.ip_adapter_scale !== undefined ? Number(payload.ip_adapter_scale) : 0.7,
+            use_lcm: Boolean(payload.use_lcm),
+            sampler: payload.sampler || (payload.use_lcm ? "lcm" : "euler"),
+            face_id_path: payload.face_id_path || "checkpoints/person_face_id.safetensors",
+            cloud_provider: payload.cloud_provider || "auto",
+            cloud_profile_path: payload.cloud_profile_path || "checkpoints/cloud_face_profile.json",
+            id_weight: payload.id_weight !== undefined ? Number(payload.id_weight) : 1.0,
+            hf_token: payload.hf_token || null,
+            steps: payload.steps !== undefined ? Number(payload.steps) : 20,
+            guidance_scale: payload.guidance_scale !== undefined ? Number(payload.guidance_scale) : 4.0,
+            width: payload.width !== undefined ? Number(payload.width) : 896,
+            height: payload.height !== undefined ? Number(payload.height) : 1152,
+            seed: payload.seed !== undefined && payload.seed !== "" ? Number(payload.seed) : null,
+            num_images: payload.num_images ? Number(payload.num_images) : 1,
+            dry_run: payload.dry_run,
+          },
+          { timeout: 180000 }
+        ),
+      2,
+      1500
     );
 
     const data = response.data;
