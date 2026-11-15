@@ -7,6 +7,7 @@ from .camera_motion import CameraMotionController
 from .encoder import VideoEncoder
 from .cloud_client import CloudZeroGPUVideoClient
 from .api_providers import VideoAPIProvider
+from .engine import TextToVideoEngine, VideoGenerationResult
 
 __all__ = [
     "VideoPromptEnhancer",
@@ -15,4 +16,6 @@ __all__ = [
     "VideoEncoder",
     "CloudZeroGPUVideoClient",
     "VideoAPIProvider",
+    "TextToVideoEngine",
+    "VideoGenerationResult",
 ]
