@@ -22,13 +22,16 @@ VALID_VIDEO_PROVIDERS = [
 
 VALID_CAMERA_MOTIONS = [
     "static",
+    "none",
     "zoom_in",
     "zoom_out",
     "pan_left",
     "pan_right",
     "tilt_up",
     "tilt_down",
-    "orbit"
+    "orbit",
+    "orbit_cw",
+    "roll_cw"
 ]
 
 VALID_VIDEO_FORMATS = ["mp4", "gif", "webm"]
@@ -69,9 +72,14 @@ class VideoConfig:
     export_format: str = "mp4"
     generate_thumbnail: bool = True
     generate_gif_preview: bool = True
+    style_preset: Optional[str] = "cinematic_movie"
+    export_gif: bool = True
+    mock: bool = False
 
     def validate(self) -> None:
         """Validates all video parameters against operational constraints."""
+        if not self.prompt or not self.prompt.strip():
+            raise ValueError("Prompt cannot be empty.")
         if self.provider not in VALID_VIDEO_PROVIDERS:
             raise ValueError(f"Invalid provider '{self.provider}'. Choose from {VALID_VIDEO_PROVIDERS}")
         if self.camera_motion not in VALID_CAMERA_MOTIONS:

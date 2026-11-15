@@ -9,6 +9,8 @@ from .cloud_client import CloudZeroGPUVideoClient
 from .api_providers import VideoAPIProvider
 from .engine import TextToVideoEngine, VideoGenerationResult
 
+CommercialVideoClient = VideoAPIProvider
+
 __all__ = [
     "VideoPromptEnhancer",
     "VIDEO_PRESETS",
@@ -16,6 +18,7 @@ __all__ = [
     "VideoEncoder",
     "CloudZeroGPUVideoClient",
     "VideoAPIProvider",
+    "CommercialVideoClient",
     "TextToVideoEngine",
     "VideoGenerationResult",
 ]
