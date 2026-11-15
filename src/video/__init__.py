@@ -6,6 +6,7 @@ from .prompt_enhancer import VideoPromptEnhancer, VIDEO_PRESETS
 from .camera_motion import CameraMotionController
 from .encoder import VideoEncoder
 from .cloud_client import CloudZeroGPUVideoClient
+from .api_providers import VideoAPIProvider
 
 __all__ = [
     "VideoPromptEnhancer",
@@ -13,4 +14,5 @@ __all__ = [
     "CameraMotionController",
     "VideoEncoder",
     "CloudZeroGPUVideoClient",
+    "VideoAPIProvider",
 ]
