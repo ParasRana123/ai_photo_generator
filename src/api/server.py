@@ -12,10 +12,16 @@ from pydantic import BaseModel
 
 from src.utils.device import get_device_info
 from src.utils.inference_config import InferenceConfig
+from src.utils.video_config import VideoConfig
 from src.preprocessing.dataset_builder import DatasetBuilder
 from src.inference.generator import SDXLInferenceEngine
 from src.inference.style_presets import list_available_styles
 from src.inference.metadata_writer import PNGMetadataWriter
+from src.video import (
+    TextToVideoEngine,
+    CameraMotionController,
+    VideoPromptEnhancer
+)
 from .state import TrainingJobManager
 
 
@@ -75,6 +81,25 @@ class GenerateRequest(BaseModel):
     dry_run: Optional[bool] = None
 
 
+class VideoGenerateRequest(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = None
+    camera_motion: str = "none"
+    motion_intensity: float = 1.0
+    duration_seconds: float = 2.0
+    fps: int = 16
+    width: int = 512
+    height: int = 512
+    provider: str = "auto"
+    seed: Optional[int] = None
+    style_preset: Optional[str] = "cinematic"
+    export_gif: bool = True
+    output_dir: str = "outputs/videos"
+    api_key: Optional[str] = None
+    hf_token: Optional[str] = None
+    dry_run: Optional[bool] = None
+
+
 @app.get("/health")
 def health_check() -> Dict[str, Any]:
     """Returns Python AI service health and compute device info."""
@@ -108,7 +133,10 @@ def health_check() -> Dict[str, Any]:
         "cloud_profile_ready": Path("checkpoints/cloud_face_profile.json").exists(),
         "cloud_providers": ["auto", "pulid_flux", "instantid", "photomaker_v2", "pulid_sdxl"],
         "face_id_ready": Path("checkpoints/person_face_id.safetensors").exists(),
-        "sdxl_lora_ready": Path("checkpoints/person_sdxl_lora.safetensors").exists()
+        "sdxl_lora_ready": Path("checkpoints/person_sdxl_lora.safetensors").exists(),
+        "video_engine_ready": True,
+        "video_motions": CameraMotionController.list_motions(),
+        "video_styles": VideoPromptEnhancer.list_presets()
     }
 
 
@@ -250,4 +278,120 @@ def get_gallery(output_dir: str = "outputs/generated") -> Dict[str, Any]:
         })
 
     return {"images": gallery_items}
+
+
+@app.post("/video/generate")
+def generate_video(req: VideoGenerateRequest) -> Dict[str, Any]:
+    """Generates an MP4 video (plus optional GIF & thumbnail) from a text prompt."""
+    use_dry_run = req.dry_run if req.dry_run is not None else MOCK_MODE_DEFAULT
+
+    try:
+        cfg = VideoConfig(
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt or VideoConfig().negative_prompt,
+            camera_motion=req.camera_motion,
+            motion_intensity=req.motion_intensity,
+            duration_seconds=req.duration_seconds,
+            fps=req.fps,
+            width=req.width,
+            height=req.height,
+            provider=req.provider,
+            seed=req.seed,
+            style_preset=req.style_preset,
+            export_gif=req.export_gif,
+            output_dir=req.output_dir,
+            api_key=req.api_key,
+            hf_token=req.hf_token,
+            mock=use_dry_run,
+        )
+        cfg.validate()
+
+        engine = TextToVideoEngine(config=cfg, mock=use_dry_run)
+        result = engine.generate(
+            prompt=req.prompt,
+            camera_motion=req.camera_motion,
+            style_preset=req.style_preset,
+            duration_seconds=req.duration_seconds,
+            fps=req.fps,
+            seed=req.seed,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    mp4_p = Path(result.video_path)
+    thumb_p = Path(result.thumbnail_path) if result.thumbnail_path else None
+    gif_p = Path(result.gif_path) if result.gif_path else None
+
+    return {
+        "status": "completed",
+        "is_mock": use_dry_run,
+        "video": {
+            "filename": mp4_p.name,
+            "url": f"/outputs/videos/{mp4_p.name}",
+            "thumbnail_url": f"/outputs/videos/{thumb_p.name}" if thumb_p else None,
+            "gif_url": f"/outputs/videos/{gif_p.name}" if gif_p else None,
+            "prompt": result.prompt,
+            "camera_motion": result.camera_motion,
+            "duration_seconds": result.duration_seconds,
+            "fps": result.fps,
+            "frame_count": result.frame_count,
+            "seed": result.seed,
+            "provider": result.metadata.get("provider", req.provider),
+            "generation_time_s": result.generation_time_s,
+        },
+        "metadata": result.metadata,
+    }
+
+
+@app.get("/video/gallery")
+def get_video_gallery(output_dir: str = "outputs/videos") -> Dict[str, Any]:
+    """Lists generated MP4 videos along with their sidecar JSON metadata."""
+    out_path = Path(output_dir)
+    if not out_path.exists():
+        return {"videos": []}
+
+    mp4s = sorted(out_path.glob("*.mp4"), key=lambda f: f.stat().st_mtime, reverse=True)
+    items = []
+    for f in mp4s:
+        sidecar = f.with_suffix(".json")
+        meta = {}
+        if sidecar.exists():
+            try:
+                import json
+                with open(sidecar, "r", encoding="utf-8") as sf:
+                    meta = json.load(sf)
+            except Exception:
+                pass
+
+        thumb = f.with_suffix(".jpg")
+        gif = f.with_suffix(".gif")
+
+        items.append({
+            "filename": f.name,
+            "url": f"/outputs/videos/{f.name}",
+            "thumbnail_url": f"/outputs/videos/{thumb.name}" if thumb.exists() else None,
+            "gif_url": f"/outputs/videos/{gif.name}" if gif.exists() else None,
+            "prompt": meta.get("prompt", ""),
+            "camera_motion": meta.get("camera_motion", "none"),
+            "duration_seconds": meta.get("duration_seconds", 0),
+            "fps": meta.get("fps", 16),
+            "frame_count": meta.get("frame_count", 0),
+            "seed": meta.get("seed", None),
+            "provider": meta.get("provider", "unknown"),
+            "created_at": f.stat().st_mtime,
+        })
+    return {"videos": items}
+
+
+@app.get("/video/motions")
+def get_video_motions() -> Dict[str, Any]:
+    """Lists supported camera motion dynamics."""
+    return {"motions": CameraMotionController.list_motions()}
+
+
+@app.get("/video/styles")
+def get_video_styles() -> Dict[str, Any]:
+    """Lists available video cinematic style presets."""
+    return {"styles": VideoPromptEnhancer.list_presets()}
+
 
