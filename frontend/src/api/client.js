@@ -66,3 +66,13 @@ export const aiApi = {
     apiRequest("/api/ai/generate", { method: "POST", body: JSON.stringify(payload) }),
   getGallery: () => apiRequest("/api/ai/gallery"),
 };
+
+export const videoApi = {
+  generate: (payload) =>
+    apiRequest("/api/video/generate", { method: "POST", body: JSON.stringify(payload) }),
+  getGallery: () => apiRequest("/api/video/gallery"),
+  getMotions: () => apiRequest("/api/video/motions"),
+  getStyles: () => apiRequest("/api/video/styles"),
+  deleteVideo: (filename) =>
+    apiRequest(`/api/video/${encodeURIComponent(filename)}`, { method: "DELETE" }),
+};

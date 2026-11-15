@@ -1,5 +1,5 @@
 import React from "react";
-import { Sparkles, UploadCloud, Wand2, Images, LogOut, User } from "lucide-react";
+import { Sparkles, UploadCloud, Wand2, Film, Images, LogOut, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 export default function Navbar({ activeTab, setActiveTab, galleryCount = 0 }) {
@@ -31,6 +31,14 @@ export default function Navbar({ activeTab, setActiveTab, galleryCount = 0 }) {
           >
             <Wand2 size={16} />
             Prompt Studio
+          </button>
+          <button
+            type="button"
+            className={`nav-tab ${activeTab === "video" ? "active" : ""}`}
+            onClick={() => setActiveTab("video")}
+          >
+            <Film size={16} />
+            Video Studio
           </button>
           <button
             type="button"

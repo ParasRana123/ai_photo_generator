@@ -6,6 +6,7 @@ import Navbar from "./components/Navbar";
 import PhotoUpload from "./components/PhotoUpload";
 import TrainingProgress from "./components/TrainingProgress";
 import PromptStudio from "./components/PromptStudio";
+import VideoStudio from "./components/VideoStudio";
 import ImageGallery from "./components/ImageGallery";
 import { aiApi } from "./api/client";
 
@@ -59,6 +60,10 @@ function StudioWorkspace() {
           <PromptStudio
             onGenerated={() => setGalleryRefresh((c) => c + 1)}
           />
+        )}
+
+        {activeTab === "video" && (
+          <VideoStudio />
         )}
 
         {activeTab === "gallery" && (
