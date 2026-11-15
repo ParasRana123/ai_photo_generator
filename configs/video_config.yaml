@@ -1,0 +1,26 @@
+# Text-to-Video Generation Configuration
+video:
+  prompt: "A young man in a tailored navy suit smiling and waving to the camera in front of a warm illuminated city skyline, cinematic 35mm film motion"
+  negative_prompt: "blurry, jitter, flickering, sudden morphing, warped faces, deformed limbs, static image, low frame rate, stutter, low resolution, watermark, text"
+  
+  provider: "auto" # "auto", "cogvideox", "damo_t2v", "fal_kling", "fal_minimax", "google_veo", "mock"
+  base_model: "THUDM/CogVideoX-5B"
+  hf_token: null
+  api_key: null
+
+  duration_seconds: 3.0
+  fps: 16
+  num_frames: 24
+  motion_intensity: 5.0
+  camera_motion: "zoom_in" # "static", "zoom_in", "zoom_out", "pan_left", "pan_right", "tilt_up", "tilt_down", "orbit"
+
+  width: 512
+  height: 512
+  num_inference_steps: 25
+  guidance_scale: 7.0
+  seed: 42
+
+  output_dir: "outputs/videos"
+  export_format: "mp4" # "mp4", "gif", "webm"
+  generate_thumbnail: true
+  generate_gif_preview: true
