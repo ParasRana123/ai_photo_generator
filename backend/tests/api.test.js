@@ -112,5 +112,31 @@ describe("Express Backend API Gateway (Phase 3)", () => {
     assert.ok(Array.isArray(res.body.styles));
     assert.ok(res.body.styles.length >= 7);
   });
+
+  test("GET /api/video/motions returns supported camera motion presets", async () => {
+    const res = await request("GET", "/api/video/motions");
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.motions));
+    assert.ok(res.body.motions.length >= 5);
+  });
+
+  test("GET /api/video/styles returns video cinematic style presets", async () => {
+    const res = await request("GET", "/api/video/styles");
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.styles));
+    assert.ok(res.body.styles.length >= 5);
+  });
+
+  test("GET /api/video/gallery returns video gallery array", async () => {
+    const res = await request("GET", "/api/video/gallery");
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray(res.body.videos));
+  });
+
+  test("POST /api/video/generate requires prompt", async () => {
+    const res = await request("POST", "/api/video/generate", { prompt: "" });
+    assert.equal(res.status, 400);
+    assert.ok(res.body.error);
+  });
 });
 

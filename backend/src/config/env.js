@@ -11,5 +11,6 @@ module.exports = {
   ROOT_DIR,
   RAW_PHOTOS_DIR: path.join(ROOT_DIR, "data", "raw"),
   GENERATED_DIR: path.join(ROOT_DIR, "outputs", "generated"),
+  VIDEOS_DIR: path.join(ROOT_DIR, "outputs", "videos"),
   DB_PATH: path.resolve(__dirname, "../../data/db.json"),
 };
